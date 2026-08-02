@@ -37,7 +37,7 @@ flowchart TB
     subgraph INFERENCE["4. Tuned XGBoost Machine Learning Engine"]
         D4 --> E1[Feature Normalizer & Standard Scaler]
         E1 --> E2[Tuned XGBoost Classifier Engine]
-        E2 --> E3[Crash Risk Category: Very Low | Low | High | Very High]
+        E2 --> E3["Crash Risk Category: Very Low / Low / High / Very High"]
         E2 --> E4[Predicted Crash Index Score: 0.00 - 10.00]
     end
 
