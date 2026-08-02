@@ -1,0 +1,83 @@
+METHODOLOGY: PRE-PROCESSING, FEATURE ENGINEERING, AND LEAKAGE-FREE MACHINE LEARNING PIPELINE
+
+This section delineates the end-to-end machine learning methodology implemented for road safety risk prediction. The proposed pipeline is structured to: (1) ingest and clean raw expert survey assessments, (2) vectorize multi-type categorical variables, (3) engineer domain-specific composite risk indices, (4) implement strict leakage-free cross-validation boundaries, and (5) train and optimize advanced classification and regression estimators.
+
+1. Data Ingestion, Cleansing, and Coordinate Parsing
+The raw dataset comprises qualitative assessments collected from expert opinion surveys. Initial preprocessing involves structural cleansing: stripping leading and trailing whitespaces from all text fields and removing checkbox artifacts (e.g., "" characters). To translate spatial coordinate identifiers into a continuous format suitable for modeling, chainage intervals (represented as text strings, e.g., "50 - 50.5") are parsed and converted into numeric midpoints. Let C_start and C_end represent the start and end chainage limits of a road segment. The continuous spatial coordinate (C_mid) is computed as:
+   C_mid = (C_start + C_end) / 2
+Missing midpoints resulting from invalid string formats are imputed using the median midpoint value of the dataset.
+
+2. Categorical Variable Encoding Schemes
+The feature space consists of qualitative responses describing road conditions, geometry, obstacles, and conflicts. To convert these into model-ready tensors, three distinct encoding schemes are applied:
+   A. Ordinal Encoding: For attributes containing intrinsic logical ranking (e.g., lane markings, shoulder condition, road surface quality, signage adequacy, and drainage condition), text labels are mapped to sequential, non-negative integers. For example, shoulder condition is mapped as: {Good -> 0, Encroached -> 1, Damaged -> 2, Absent -> 3}.
+   B. Intensity Scoring: Qualitative frequencies of pedestrian, cyclist, and two-wheeler conflicts, roadside commercial activity, and jaywalking are mapped to an intensity scale from 0 to 5. For instance, conflict frequency is encoded as: {None -> 0, Few -> 2, Frequent -> 5}. Roadside commercial and pedestrian activities are mapped as: {None -> 0, Low -> 2, Medium -> 3, High -> 5}.
+   C. Nominal Dummy Encoding: Attributes without inherent ordering, such as carriageway type (e.g., single vs. dual), obstacle types (e.g., shops, trees, poles, structures), and presence of enforcement mechanisms (e.g., CCTV, police patrol), are expanded into binary dummy variables (one-hot encoding). To avoid the dummy variable trap, the first category is dropped.
+
+3. Advanced Feature Engineering (Composite Risk Indices)
+To capture complex multi-way physical interactions and hazard exposures, four advanced domain-specific indices are engineered:
+   A. Total Conflict Load (TCL): Aggregates the overall traffic conflict pressure on a segment. It is computed as the sum of individual conflict intensity scores:
+      TCL = sum(C_type)
+      where C_type = {Pedestrian-Vehicle, Cyclist-Vehicle, Two-Wheeler-Vehicle, Unsafe Merging, Unsafe clearance close passing}.
+   B. Infrastructure Quality Index (IQI): Synthesizes physical road elements to measure structural safety. It is computed as a composite function of ordinal markings (M), shoulder (Sh), median (Med), and drainage (D) ratings:
+      IQI = Markings_ord + Shoulder_ord + Median_ord + Drainage_ord
+   C. Roadside Friction Score (RFS): Models active hazards bordering the carriage-way, capturing the interaction between commercial activity density (CAD), pedestrian density (PD), median openings (MO), and jaywalking frequency (JW):
+      RFS = CAD_ord + PD_ord + MedianOpenings_ord + Jaywalking_ord
+   D. Visibility Risk (VR): Combines geometric and functional visual obstructions, taking into account sight distance adequacy (SD) and pedestrian crossing visibility (PCV):
+      VR = SightDistance_ord + PedCrossingVisibility_ord
+
+4. Multicollinearity Filtering and Target Leakage Prevention
+Before executing model training, features are audited to prevent overfitting and information leakage:
+   A. Target Leakage Prevention: Exclude_cols = ['Timestamp', 'Name', 'Age', 'Crash_Index', 'Expert rating of crash likelihood in this km', 'Expert rating of crash likelihood in this km_ord'] are dropped entirely from the feature matrix prior to scaling, dimensionality reduction, or training. This prevents target representation from contaminating predictor variables.
+   B. Multicollinearity Filtering: To prevent variance inflation, a pairwise absolute Pearson correlation (|r|) is calculated across all candidate features. Features are filtered using a strict threshold of |r| > 0.90. If collinearity exceeds this limit, the redundant variable is dropped, retaining the engineered composite index or main physical parameter based on domain relevance.
+   C. Splitting Isolation: The cleaned dataset (N=100) is split into 80% training and 20% test splits prior to applying standard scaling or feature transformation.
+
+5. Leakage-Free SMOTE-Balanced Optimization Pipeline
+Due to the small sample size and target class imbalance (Very Low, Low, High, Very High risk categories), modeling must address minority class collapse (Very High and High risk tiers). We implement a strict validation pipeline using the imblearn library:
+   A. Pipeline Isolation: Standard scaling and Synthetic Minority Over-sampling Technique (SMOTE) are embedded within an imblearn Pipeline. Standard scaling transforms features to zero mean and unit variance based on parameters fit solely on the training fold:
+      X_scaled = (X - mu_train) / sigma_train
+      SMOTE synthetic samples are then generated on this scaled subspace strictly within the training fold:
+      X_resampled, y_resampled = SMOTE.fit_resample(X_train_scaled, y_train)
+      This guarantees that no information from validation splits is leaked.
+   B. Class Weighting and Loss Scaling: Balanced sample weights are calculated to adjust XGBoost multiclass log-loss calculations during the final fitting stage:
+      w_i = N_total / (N_classes * class_count_i)
+   C. Early Stopping: To optimize boosting rounds and prevent overfitting, a 15% sub-validation split is extracted from the training set. The model is fit tracking multiclass validation loss, with boosting terminated if the validation loss does not improve for 20 consecutive epochs (early_stopping_rounds=20).
+
+6. Model Evaluation (Nested Cross-Validation)
+To report unbiased generalization metrics, we implement a Stratified 5-Fold Nested Cross-Validation strategy:
+   * Outer CV Loop: 5 folds are utilized to estimate test split generalization.
+   * Inner CV Loop: 3 folds are nested inside a randomized grid search (RandomizedSearchCV with n_iter=15) to perform hyperparameter tuning (optimizing tree depth, learning rate, and L1/L2 regularization).
+This nested approach ensures that the hyperparameters are optimized and evaluated on separate data splits, eliminating optimization bias.
+
+7. Final Models and Baseline Comparison
+A comparative classification framework evaluates the following final models:
+   * Tuned XGBoost Classifier (Advanced Hero Model)
+   * Logistic Regression (Multinomial baseline)
+   * Support Vector Classifier (SVC)
+   * Tuned Decision Tree Classifier (Simple Baseline replacing Random Forest to prevent suspiciously perfect overfitting on the small dataset)
+Additionally, continuous index prediction is evaluated via the **XGBoost Regressor** trained on the selected parameters.
+Generalization capability is reported using Weighted Precision, Weighted Recall, Macro F1-Score, Balanced Accuracy, and classification/regression Root Mean Squared Error (RMSE).
+
+8. Mathematical Formulation of the Refined Crash Index (Risk Index)
+The target risk index is derived using a model-weighted formulation to translate qualitative physical road characteristics into a structured, continuous safety scale.
+
+A. Weighted Raw Crash Index (Raw_CI)
+To prevent circular reasoning, subjective expert scores are omitted from the inputs. The Raw Crash Index for a segment 's' is computed as the sum of feature-importance weights associated with the segment's active physical features:
+   Raw_CI(s) = sum( w_i * x_i(s) )
+   Where:
+   - w_i: The importance weight assigned to the specific feature option 'i' (derived from feature_importance.xlsx).
+   - x_i(s): A binary indicator variable. x_i(s) = 1 if the road segment 's' exhibits feature option 'i', and 0 otherwise.
+
+B. Normalized Refined Crash Index (Refined_CI)
+To standardize the risk values across all road segments to a readable 0-9 scale, Min-Max normalization is applied:
+   Refined_CI(s) = 9 * (Raw_CI(s) - Raw_CI_min) / (Raw_CI_max - Raw_CI_min)
+   Where:
+   - Raw_CI_min: The minimum Raw_CI value computed across the entire dataset.
+   - Raw_CI_max: The maximum Raw_CI value computed across the entire dataset.
+
+C. Risk Classification Mapping
+The resulting Refined_CI is segmented into five categorical risk levels using the following intervals:
+   - Refined_CI in [0.00, 2.00] -> Very Low Risk
+   - Refined_CI in (2.00, 4.00] -> Low Risk
+   - Refined_CI in (4.00, 6.00] -> Moderate Risk
+   - Refined_CI in (6.00, 8.00] -> High Risk
+   - Refined_CI in (8.00, 9.00] -> Very High Risk

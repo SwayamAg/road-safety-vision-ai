@@ -1,0 +1,67 @@
+ROAD SAFETY RISK ANALYTICS PROJECT OVERVIEW
+
+1. Executive Summary
+This project develops and validates a leakage-free machine learning and statistical modeling pipeline for road safety risk prediction. Using physical highway geometry, pavement quality, and traffic conflict assessments from survey data, the pipeline builds models to predict:
+   - Continuous road safety risk (using the Crash Index continuous target) via Regression.
+   - Categorized risk tiers (Very Low, Low, High, Very High) via Multiclass Classification.
+The primary engineering objective is to isolate and optimize the XGBoost Classifier as the primary advanced nonlinear model, demonstrating superior predictive power over linear and simple tree baselines while maintaining strict mathematical defensibility and zero information leakage.
+
+2. End-to-End Pipeline Phases
+
+   Phase 1: Data Ingestion and Cleaning
+   - Qualitative assessments are cleansed of artifact characters (e.g., "") and stripped of whitespaces.
+   - Spatial coordinates (e.g., chainages "50 - 50.5") are parsed into continuous midpoints (50.25).
+
+   Phase 2: Categorical Vectorization
+   - Ordinal Encoding: Ranked variables (e.g., shoulder, markings, signage, drainage, alignment) are mapped to sequential integers.
+   - Intensity Scoring: Frequency fields (conflicts, pedestrian activity, commercial density, jaywalking) are mapped onto a 0–5 risk scale.
+   - Nominal Encoding: Categorical fields without implicit ranking are dummy encoded (One-Hot).
+
+   Phase 3: Advanced Composite Feature Engineering
+   Four domain-specific indices aggregate complex physical interactions:
+   - Total Conflict Load (TCL): Sum of individual conflict intensity scores.
+   - Infrastructure Quality Index (IQI): Sum of road surface, markings, shoulder, and drainage conditions.
+   - Roadside Friction Score (RFS): Interaction term of commercial activity, pedestrian density, jaywalking, and median openings.
+   - Visibility Risk (VR): Synthesis of sight distance adequacy and crossing visibility.
+
+   Phase 4: Leakage Prevention & Data Splitting
+   - Immediate exclusion of identifiers and target metrics (Timestamp, Name, Age, Crash_Index, Expert Likelihood) from candidate features.
+   - Pairwise correlation audit (|r| > 0.90) to drop redundant predictors.
+   - Strict 80/20 train/test split isolation before any scaling, SMOTE, or parameter tuning.
+
+   Phase 5: In-Fold SMOTE & Class Balancing
+   - Class balancing methods (Standard Scaling, SMOTE oversampling) are fit strictly within train splits inside cross-validation loops, preventing out-of-fold leakage.
+   - Class-based sample loss weighting is applied during fit.
+   - Gradient boosting is constrained with a 15% sub-validation split inside training folds using early stopping (20 epochs) to halt boosting before memorization occurs.
+
+   Phase 6: Nested Cross-Validation (Model Optimization)
+   - Evaluates generalization capabilities using 5 outer folds and performs hyperparameter tuning using 3 inner splits (RandomizedSearchCV with 15 iterations).
+
+3. Model Selection Outcomes
+
+   A. Classification Metrics (Holdout Test Set)
+   - Tuned XGBoost (Advanced Model): 90.0% Accuracy, 0.9021 Macro F1 (Selected Hero Model)
+   - Logistic Regression: 80.0% Accuracy, 0.7590 Macro F1
+   - Decision Tree (Tuned Baseline): 75.0% Accuracy, 0.7250 Macro F1
+   - Support Vector Classifier (SVC): 50.0% Accuracy, 0.3697 Macro F1
+   *Note: Random Forest was removed from the final comparison as its 100% test accuracy on this small dataset indicated overfitting rather than robust generalization.*
+
+   B. Regression Metrics (Continuous Crash Index)
+   - Support Vector Regression (SVR): RMSE = 2.055, R2 = 0.465 (Selected Regression Baseline)
+   - XGBoost Regressor: RMSE = 2.140, R2 = 0.420
+   - Linear Regression: RMSE = 2.279, R2 = 0.342
+
+4. Key Deliverables & Artifacts (Saved in Final_Draft/)
+   - road_safety_models.ipynb: The executed and audited Jupyter notebook containing all pipeline steps and plots.
+   - summary.md: Executive summary of results, risk categories, and parameter correlations.
+   - methodology.txt: Academic methodology text written for publication.
+   - results_gallery.md: Markdown visual gallery showcasing the comparative tables and plots.
+   - Generated Figures:
+     * model_comparison_600dpi.png: High-resolution classification results.
+     * confusion_matrices_600dpi.png: Calibrated XGBoost confusion matrix.
+     * xgb_calibration_curve.png: Reliability curves mapping model probabilities.
+     * xgb_accuracy_curve.png: Log-loss validation progress tracking early stopping.
+     * top_10_parameter_importance.png: Stable permutation importance bar plot.
+     * safety_regression_scatter.png: SVR actual vs. predicted regression scatter plot.
+     * top_10_impact_table.png: Table of top parameters impacting safety index with safety scores.
+     * risk_categories_table.png: Table defining target risk labels and score ranges.

@@ -1,0 +1,57 @@
+Master List of Road Safety Parameters
+
+This document lists all 39 road safety parameters analyzed in the modeling pipeline, categorized by their feature groups, along with their encoding formats.
+
+Section A: Road Geometry and Alignment
+1. Chainage: Continuous spatial midpoint coordinate (Numeric).
+2. Year of Survey: Survey execution year (Numeric).
+3. Type of carriageway: Carriageway type dummy columns (One-Hot Encoded).
+4. Road alignment type: Alignment curvature degree (Ordinal: Straight [0], Gentle curve [1], Sharp curve [2], Hairpin [3]).
+5. Vertical gradient: Vertical incline severity (Ordinal: Flat [0], Mild slope [1], Steep slope [2]).
+
+Section B: Visibility and Lane Conditions
+6. Is sight distance adequate?: Adequate sight distance presence (Ordinal: Yes [0], Partly [1], No [2]).
+7. Lane marking condition: Visual delineation quality (Ordinal: Clear [0], Faded [1], Absent [2]).
+8. Lane width adequacy: Dummy columns for width sufficiency (One-Hot Encoded).
+9. Shoulder condition: Edge shoulder safety (Ordinal: Good [0], Encroached [1], Damaged [2], Absent [3]).
+10. Median presence and quality: Central divider safety (Ordinal: Adequate [0], Poor [1], Absent [2]).
+11. Intersection type observed: Junction control type dummy columns (One-Hot Encoded).
+12. Junction channelization: Island/lane guidance adequacy at intersection (Ordinal: Proper [0], Poor [1], Absent [2]).
+
+Section C: Conflict and Near-Miss Indicators
+(Scale: None [0], Few [2], Frequent [5])
+13. Pedestrian-vehicle conflicts: Active pedestrian crossing conflict intensity.
+14. Cyclist-vehicle conflicts: Bicycle/tricycle conflict intensity.
+15. Two-wheeler-vehicle conflicts: Motorcycle/scooter conflict intensity.
+16. Unsafe merging diverging maneuvers observed: Lane change conflict intensity.
+17. Instances of close passing unsafe clearance: Lateral vehicle encroachment intensity.
+
+Section D: Roadside Environment and Hazards
+18. Roadside commercial activity density: Shop encroachment density (Scale: None [0], Low [2], Medium [3], High [5]).
+19. Roadside pedestrian activity: Walking concentration (Scale: None [0], Low [2], Medium [3], High [5]).
+20. Visibility of pedestrian crossings: Marking visual prominence (Ordinal: Good [0], Poor [1], Absent [2]).
+21. Median openings and U-turns: Frequency of divider gaps (Scale: None [0], Few [2], Many [5]).
+22. Roadside encroachments: Stationary obstacle type dummy columns (One-Hot Encoded).
+23. Fixed roadside obstacles: Fixed vertical structure dummy columns (One-Hot Encoded).
+24. Temporary obstacles Parked vehicles: Parked obstacle dummy columns (One-Hot Encoded).
+25. Condition of access points: Side-road access safety (Ordinal: Safe [0], Unsafe [1]).
+26. Frequency of jaywalking pedestrians: Unmarked crossing frequency (Scale: None [0], Occasional [2], Frequent [5]).
+27. Presence of animals on road: Stray animal hazard frequency (Scale: None [0], Rare [1], Frequent [5]).
+
+Section E: Environmental and Operational Conditions
+28. Weather condition: Meteorological condition dummy columns (One-Hot Encoded).
+29. Road surface condition: Pavement quality (Ordinal: Good [0], Minor defects [1], Damaged [2]).
+30. Pothole or uneven patch density: Pavement defect density (Scale: None [0], Few [2], Many [5]).
+31. Drainage condition: Water discharge quality (Ordinal: Good [0], Waterlogging patches [1], Severe waterlogging [2]).
+32. Adequacy of signage observed: Road sign visibility (Ordinal: Adequate [0], Poor [1], Absent [2]).
+33. Presence of enforcement mechanisms: Speed/safety control dummy columns (One-Hot Encoded).
+
+Section F: Engineered Composite Indices (Feature Engineering)
+34. Total_Conflict_Load: Aggregate traffic conflict pressure (TCL = Sum of C_type [13 to 17]).
+35. Infrastructure_Quality_Index: Composite roadway construction quality index (IQI = Markings + Shoulder + Median + Drainage [7, 9, 10, 31]).
+36. Roadside_Friction_Score: Cumulative lateral friction and encroachment score (RFS = CAD + PD + Access + Jaywalking + Animals [18, 19, 25, 26, 27]).
+37. Visibility_Risk: Integrated visual range constraint score (VR = Sight Distance + Ped Crossing Visibility [6, 20]).
+
+Section G: Target Variables (Model Outputs)
+38. Expert rating of crash likelihood: Subjective rating indicator (Scale: Very low [1], Low [2], Medium [3], High [4]).
+39. Overall Crash Index score: Continuous index target rating (1.0 to 10.0).
