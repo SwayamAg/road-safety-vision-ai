@@ -78,7 +78,7 @@ flowchart TB
 
     subgraph INFERENCE["4. XGBoost Risk Inference Engine"]
         D2 --> E1[Tuned XGBoost Classifier]
-        E1 --> E2["Risk Tier: Very Low / Low / High / Very High"]
+        E1 --> E2[Risk Tier: Very Low | Low | High | Very High]
         E1 --> E3[Class Probabilities Vector]
     end
 

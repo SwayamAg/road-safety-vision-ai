@@ -28,6 +28,12 @@ ENV/
 README_Skill.md
 *_Skill.md
 
+# Data & Output Media Directories
+DATA/
+DATA/*
+*.xlsx
+*.csv
+
 # OS Specific
 .DS_Store
 Thumbs.db

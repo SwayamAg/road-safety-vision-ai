@@ -2,6 +2,8 @@ import os
 import sys
 import cv2
 import time
+import json
+import pandas as pd
 from video_loader import VideoFrameReader
 from cv_detector import RoadSafetyDetector
 from feature_calibrator import FeatureCalibrator
@@ -10,14 +12,29 @@ from risk_predictor import RiskPredictor
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-def run_road_safety_pipeline(video_path: str, output_annotated_path: str = "output_road_safety_annotated.mp4"):
+def format_timestamp(seconds: float) -> str:
+    """Converts timestamp in seconds to MM:SS.s format."""
+    mins = int(seconds // 60)
+    secs = seconds % 60
+    return f"{mins:02d}:{secs:04.1f}"
+
+def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP"):
     """
     Master End-to-End Execution Pipeline for Phase 2 Road Safety Risk Analytics.
-    Executes Video Ingestion ➔ CV Object Perception ➔ Spatial Feature Calibration ➔ XGBoost Inference.
+    Processes video streams, detects CV objects @ 5 FPS timestamps, exports frame-by-frame Excel/CSV,
+    calibrates XGBoost inputs, predicts Risk Tier, and outputs annotated MP4 video & JSON report.
     """
-    print("=" * 70)
-    print("🛣️ Phase 2 Automated Road Safety Risk Analytics Pipeline")
-    print("=" * 70)
+    os.makedirs(output_dir, exist_ok=True)
+    video_basename = os.path.splitext(os.path.basename(video_path))[0]
+    
+    output_annotated_path = os.path.join(output_dir, f"{video_basename}_annotated.mp4")
+    output_json_path = os.path.join(output_dir, f"{video_basename}_risk_report.json")
+    output_excel_path = os.path.join(output_dir, f"{video_basename}_frame_by_frame_detections.xlsx")
+    output_csv_path = os.path.join(output_dir, f"{video_basename}_frame_by_frame_detections.csv")
+    
+    print("=" * 75)
+    print(f"🛣️ Phase 2 Automated Road Safety Risk Analytics Pipeline [{video_basename}]")
+    print("=" * 75)
     
     # 1. Initialize Video Reader
     reader = VideoFrameReader(video_path)
@@ -30,15 +47,17 @@ def run_road_safety_pipeline(video_path: str, output_annotated_path: str = "outp
     detector = RoadSafetyDetector(model_weights="yolov8n.pt")
     predictor = RiskPredictor(model_dir="../Ready dataset")
     
-    print("\n[2/4] Processing Video Frames through CV Perception Layer...")
+    print("\n[2/4] Processing Video Frames @ 5 FPS through CV Perception Layer...")
     
-    aggregated_metrics = {
+    cum_metrics = {
         "commercial_count": 0,
         "pedestrian_count": 0,
         "animal_count": 0,
         "vehicle_count": 0,
-        "avg_sight_distance_m": 85.0 # Mock forward sight distance estimate
+        "avg_sight_distance_m": 85.0
     }
+    
+    frame_logs = []
     
     # Set up VideoWriter for annotated output video
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -51,13 +70,48 @@ def run_road_safety_pipeline(video_path: str, output_annotated_path: str = "outp
         # Run Object Detection
         dets = detector.detect_frame(resized_frame)
         
-        # Accumulate metrics
-        aggregated_metrics["commercial_count"] += dets["commercial_count"]
-        aggregated_metrics["pedestrian_count"] += dets["pedestrian_count"]
-        aggregated_metrics["animal_count"] += dets["animal_count"]
-        aggregated_metrics["vehicle_count"] += dets["vehicle_count"]
+        # Accumulate cumulative counts
+        cum_metrics["commercial_count"] += dets["commercial_count"]
+        cum_metrics["pedestrian_count"] += dets["pedestrian_count"]
+        cum_metrics["animal_count"] += dets["animal_count"]
+        cum_metrics["vehicle_count"] += dets["vehicle_count"]
         
-        # Annotate HUD
+        # Calibrate intermediate payload at this timestamp
+        calibrated_at_frame = FeatureCalibrator.calibrate_segment_metrics(cum_metrics)
+        pred_at_frame = predictor.predict_risk(calibrated_at_frame)
+        
+        # Record frame log entry for Excel export
+        log_entry = {
+            "frame_index": frame_idx,
+            "timestamp_sec": round(timestamp, 2),
+            "timestamp_formatted": format_timestamp(timestamp),
+            "pedestrians_in_frame": dets["pedestrian_count"],
+            "vehicles_in_frame": dets["vehicle_count"],
+            "animals_in_frame": dets["animal_count"],
+            "commercial_in_frame": dets["commercial_count"],
+            "cum_pedestrians": cum_metrics["pedestrian_count"],
+            "cum_vehicles": cum_metrics["vehicle_count"],
+            "cum_animals": cum_metrics["animal_count"],
+            "cum_commercial": cum_metrics["commercial_count"],
+            "sight_distance_ord": calibrated_at_frame["Is sight distance adequate for safe driving?_ord"],
+            "commercial_density_ord": calibrated_at_frame["Roadside commercial activity density_ord"],
+            "pedestrian_conflicts_ord": calibrated_at_frame["Pedestrian-vehicle conflicts_ord"],
+            "jaywalking_frequency_ord": calibrated_at_frame["Frequency of jaywalking pedestrians_ord"],
+            "unsafe_merging_ord": calibrated_at_frame["Unsafe merging diverging maneuvers observed_ord"],
+            "crosswalk_visibility_ord": calibrated_at_frame["Visibility of pedestrian crossings_ord"],
+            "road_surface_ord": calibrated_at_frame["Road surface condition_ord"],
+            "lane_marking_ord": calibrated_at_frame["Lane marking condition_ord"],
+            "junction_channelization_ord": calibrated_at_frame["Junction channelization_ord"],
+            "animal_presence_ord": calibrated_at_frame["Presence of animals on road_ord"],
+            "predicted_risk_tier": pred_at_frame["predicted_risk_tier"],
+            "prob_very_low": pred_at_frame["probabilities"].get("Very Low", 0.0),
+            "prob_low": pred_at_frame["probabilities"].get("Low", 0.0),
+            "prob_high": pred_at_frame["probabilities"].get("High", 0.0),
+            "prob_very_high": pred_at_frame["probabilities"].get("Very High", 0.0)
+        }
+        frame_logs.append(log_entry)
+        
+        # Annotate HUD & write to output video
         annotated_frame = detector.annotate_frame(resized_frame, dets)
         writer.write(annotated_frame)
         processed_frames += 1
@@ -66,31 +120,76 @@ def run_road_safety_pipeline(video_path: str, output_annotated_path: str = "outp
     t_elapsed = time.time() - t_start
     print(f"      ✔ Processed {processed_frames} sampled frames in {t_elapsed:.2f}s ({processed_frames/t_elapsed:.1f} FPS)")
     
-    # 3. Calibrate Features to 10 XGBoost Inputs
-    print("\n[3/4] Calibrating Frame Detections into 10 XGBoost Input Scales...")
-    calibrated_payload = FeatureCalibrator.calibrate_segment_metrics(aggregated_metrics)
+    # 3. Export Frame-by-Frame Excel & CSV Files
+    print("\n[3/4] Exporting Frame-by-Frame Timestamps & Detections to Excel / CSV...")
+    df_logs = pd.DataFrame(frame_logs)
     
-    # 4. Predict Road Safety Risk Tier via XGBoost
-    print("\n[4/4] Executing XGBoost Risk Inference Engine...")
-    result = predictor.predict_risk(calibrated_payload)
+    # Save Excel and CSV
+    df_logs.to_excel(output_excel_path, index=False, engine='openpyxl')
+    df_logs.to_csv(output_csv_path, index=False)
+    print(f"      ✔ Saved Excel Log: {output_excel_path} ({len(df_logs)} rows)")
+    print(f"      ✔ Saved CSV Log  : {output_csv_path}")
     
-    # Report Results
-    print("\n" + "=" * 70)
-    print(f"📊 FINAL SEGMENT RISK ASSESSMENT RESULT: {result['emoji']} [{result['predicted_risk_tier'].upper()} RISK]")
-    print("=" * 70)
-    print(f"• Recommendation : {result['description']}")
-    print(f"• Annotations Saved: {output_annotated_path}")
+    # 4. Final Calibrated Segment Payload & XGBoost Inference
+    print("\n[4/4] Executing Final Segment XGBoost Risk Inference Engine...")
+    final_calibrated_payload = FeatureCalibrator.calibrate_segment_metrics(cum_metrics)
+    final_result = predictor.predict_risk(final_calibrated_payload)
+    
+    # Save JSON Summary Report
+    audit_report = {
+        "video_metadata": info,
+        "cv_detections_summary": {
+            "processed_frames": processed_frames,
+            "processing_time_sec": round(t_elapsed, 2),
+            "fps_throughput": round(processed_frames / t_elapsed, 1),
+            "total_pedestrians_detected": cum_metrics["pedestrian_count"],
+            "total_vehicles_detected": cum_metrics["vehicle_count"],
+            "total_animals_detected": cum_metrics["animal_count"],
+            "total_commercial_objects_detected": cum_metrics["commercial_count"]
+        },
+        "xgboost_calibrated_payload": final_calibrated_payload,
+        "risk_prediction": final_result,
+        "output_files": {
+            "annotated_video": output_annotated_path,
+            "json_report": output_json_path,
+            "excel_log": output_excel_path,
+            "csv_log": output_csv_path
+        }
+    }
+    
+    with open(output_json_path, 'w', encoding='utf-8') as f:
+        json.dump(audit_report, f, indent=2)
+        
+    # Print Console Report
+    print("\n" + "=" * 75)
+    print(f"📊 FINAL RISK ASSESSMENT [{video_basename}]: {final_result['emoji']} [{final_result['predicted_risk_tier'].upper()} RISK]")
+    print("=" * 75)
+    print(f"• Recommendation : {final_result['description']}")
+    print(f"• Video Saved    : {output_annotated_path}")
+    print(f"• Excel Saved    : {output_excel_path}")
+    print(f"• JSON Saved     : {output_json_path}")
     print("\nConfidence Probabilities Breakdown:")
-    for tier, prob in result["probabilities"].items():
+    for tier, prob in final_result["probabilities"].items():
         bar = "█" * int(prob * 20)
         print(f"  - {tier:<10}: {prob:.4f} | {bar}")
-    print("=" * 70)
-    return result
+    print("=" * 75)
+    return audit_report
+
+
+def process_all_input_videos(input_dir: str = "DATA/IP", output_dir: str = "DATA/OP"):
+    """
+    Sequentially processes all MP4 videos in DATA/IP/ (e.g. 1.mp4, 2.mp4)
+    and saves output videos, Excel/CSV timestamp logs, and JSON reports in DATA/OP/.
+    """
+    video_files = [f for f in os.listdir(input_dir) if f.endswith('.mp4')]
+    video_files.sort()
+    
+    print(f"\n🚀 Found {len(video_files)} input videos in {input_dir}: {video_files}")
+    for video in video_files:
+        video_full_path = os.path.join(input_dir, video)
+        run_road_safety_pipeline(video_full_path, output_dir=output_dir)
+        print("\n")
 
 
 if __name__ == "__main__":
-    test_video = "sample_dashcam_test.mp4"
-    if not os.path.exists(test_video):
-        VideoFrameReader.generate_synthetic_test_video(test_video)
-        
-    run_road_safety_pipeline(test_video)
+    process_all_input_videos(input_dir="DATA/IP", output_dir="DATA/OP")
