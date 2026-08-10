@@ -11,27 +11,27 @@ The high-level system components and data boundaries are illustrated below:
 ```mermaid
 flowchart TB
     subgraph INGESTION["1. Video Ingestion & Decoding Layer"]
-        A1[Dashcam / Drone Video Stream] --> A2[OpenCV Video Reader / Frame Sampler]
+        A1[Dashcam / Drone Video Stream .mp4] --> A2[OpenCV Video Reader / Frame Sampler]
         A2 --> A3[Frame Preprocessing & Resizing 1080p -> 640p]
     end
 
-    subgraph CV_LAYER["2. Multi-Task Vision Perception Layer (GPU Cluster / TensorRT)"]
-        A3 --> B1[YOLOv8/v11 Object Detector]
-        A3 --> B2[Depth Anything V2 Monocular Depth]
-        A3 --> B3[U-Net / SAM 2 Segmentation]
-        A3 --> B4[ByteTrack / DeepSORT Tracker]
+    subgraph CV_LAYER["2. Multi-Task Vision Perception Layer (CUDA GPU)"]
+        A3 --> B1[YOLOv11 Object Detector]
+        A3 --> B2[MiDaS Monocular Depth Estimator]
+        A3 --> B3[Grounded-SAM 2 Segmentation]
+        A3 --> B4[ByteTrack Tracker]
 
-        B1 --> C1[Bounding Boxes: Shops, Animals, Potholes]
-        B2 --> C2[Metric Depth Map Z-Channel]
-        B3 --> C3[Segmentation Masks: Lanes, Crosswalks]
-        B4 --> C4[Trajectory Vectors: Pedestrians & Vehicles]
+        B1 --> C1[Bounding Boxes: Shops, Animals, Vehicles, Peds]
+        B2 --> C2[Sight Distance Depth Map Z-Channel]
+        B3 --> C3[Segmentation Masks: Crosswalks, Lane Lines]
+        B4 --> C4[Trajectory Vectors: Near-Miss TTC Conflicts]
     end
 
     subgraph AGGREGATION["3. Spatial-Temporal Aggregation & Calibration Engine"]
         C1 & C2 & C3 & C4 --> D1[Frame-Level Metrics Extractor]
-        D1 --> D2[Rolling Spatial Window Aggregator (500m Segment Buffer)]
+        D1 --> D2[Rolling Spatial Window Aggregator (500m Buffer)]
         D2 --> D3[Empirical Threshold Calibration Engine]
-        D3 --> D4[Standardized 10-Parameter JSON Payload]
+        D3 --> D4[Standardized 10-Parameter JSON & Excel Log]
     end
 
     subgraph INFERENCE["4. Tuned XGBoost Machine Learning Engine"]
@@ -41,9 +41,9 @@ flowchart TB
         E2 --> E4[Predicted Crash Index Score: 0.00 - 10.00]
     end
 
-    subgraph DASHBOARD["5. Visualization & Alerting Layer"]
-        E3 & E4 --> F1[Geographic GIS Risk Map / Leaflet Heatmap]
-        E3 & E4 --> F2[Blackspot Alert System & Audit Generator]
+    subgraph DASHBOARD["5. Visualization & Report Export Layer"]
+        E3 & E4 --> F1[Annotated Video Output: 1_annotated.mp4]
+        E3 & E4 --> F2[Frame-by-Frame Excel Log .xlsx & JSON Audit Report]
     end
 ```
 
@@ -51,90 +51,39 @@ flowchart TB
 
 ## 🔄 2. Frame-to-Feature Calibration Sequence Diagram
 
-This sequence diagram illustrates how a single video frame is processed through the perception sub-systems to generate ordinal feature values:
+This sequence diagram illustrates how video frames are processed through YOLOv11 and MiDaS Depth estimation to generate timestamped ordinal feature values:
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant V as Video Stream / Frame
-    participant Y as YOLOv8 Detector
-    participant D as Depth Anything Engine
-    participant S as Segmentation Engine
-    participant T as ByteTrack Engine
+    participant Y as YOLOv11 Detector
+    participant D as MiDaS Depth Estimator
     participant C as Calibration Engine
     participant X as XGBoost Model
+    participant E as Excel / CSV Exporter
 
     V->>Y: Send Frame (640x640)
     V->>D: Send Frame (RGB)
-    V->>S: Send Frame (RGB)
 
-    Y-->>C: Detected Objects (Shops, Animals, Potholes)
-    D-->>C: Depth Map Array Z(x,y) in meters
-    S-->>C: Mask Ratios (Crosswalk, Lane Markings)
+    Y-->>C: Detected Objects (Shops, Animals, Peds, Vehicles)
+    D-->>C: Forward Sight Distance (Meters)
     
-    Y->>T: Send Bounding Boxes
-    T-->>C: Trajectory Vectors & Time-To-Collision (TTC)
-
-    Note over C: Aggregate Metrics over 100m - 500m Segment
+    Note over C: Aggregate Metrics @ 5 FPS Timestamps
+    C->>E: Write Timestamped Row to 1_frame_by_frame_detections.xlsx
     C->>C: Apply Threshold Rules (0, 1, 2, 5 scales)
     C->>X: POST 10-Parameter JSON Vector
-    X-->>C: Return Risk Tier ('High Risk') & Probability Array
+    X-->>C: Return Risk Tier ('Very Low') & Class Probabilities
 ```
 
 ---
 
-## ⚡ 3. Real-Time vs. Batch Pipeline Deployment Architecture
-
-The pipeline supports two execution modes depending on operational requirements:
-
-```mermaid
-graph LR
-    subgraph BATCH["Offline Batch Mode (Inspection Vehicles)"]
-        B_Vid[Recorded MP4 Survey Video] --> B_Proc[Offline Python Batch Worker]
-        B_Proc --> B_DB[(PostgreSQL / SQLite Database)]
-        B_DB --> B_Rep[PDF Safety Audit Report]
-    end
-
-    subgraph STREAMING["Real-Time Edge Mode (Smart Inspection Vehicle)"]
-        S_Cam[RTSP Dashcam Camera] --> S_Edge[NVIDIA Jetson Orin Edge Node]
-        S_Edge --> S_RT[TensorRT Optimized Pipeline]
-        S_RT --> S_Disp[In-Cabin Driver HUD / WebSockets]
-    end
-```
-
----
-
-## 🛠️ 4. Data Processing Pipeline Lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> VideoIngestion
-    VideoIngestion --> KeyframeExtraction: Read 30 FPS Stream
-    KeyframeExtraction --> ParallelPerception: Sample at 5 FPS
-    
-    state ParallelPerception {
-        [*] --> ObjectDetection
-        [*] --> MonocularDepth
-        [*] --> LaneSegmentation
-        [*] --> MotionTracking
-    }
-
-    ParallelPerception --> MetricAccumulation: Consolidate Detections
-    MetricAccumulation --> SegmentAggregation: 500m Distance Window
-    SegmentAggregation --> ScaleCalibration: Apply Threshold Matrix
-    ScaleCalibration --> ModelInference: Send 10 Features to XGBoost
-    ModelInference --> RiskOutput: Generate Tier & Score
-    RiskOutput --> [*]
-```
-
----
-
-## 📁 Summary of Technical Component Specifications
+## 🛠️ Summary of Technical Component Specifications
 
 | Layer | Primary Tech Stack | Input Data Format | Output Data Format |
 | :--- | :--- | :--- | :--- |
-| **Ingestion** | OpenCV / PyAV | H.264 / MP4 Video File or RTSP | BGR Numpy Arrays (1080p @ 30fps) |
-| **Perception** | PyTorch / TensorRT / ONNX | BGR Images (640x640) | Bounding Boxes, Mask Bitmaps, Depth Arrays |
+| **Ingestion** | OpenCV / PyAV | H.264 / MP4 Video File (`DATA/IP/*.mp4`) | BGR Numpy Arrays (1080p @ 30fps) |
+| **Perception** | PyTorch / YOLOv11 / MiDaS | BGR Images (640x640) | Bounding Boxes, Class Counts, Depth Meters |
 | **Calibration** | Python Pandas / NumPy | Visual Detection Matrices | 10-Element Ordinal Dictionary (`int64`) |
-| **Inference** | XGBoost / Joblib Pipeline | Standardized Feature Matrix | Risk Class `int` & Probabilities `float` |
-| **Visualization**| Streamlit / Leaflet.js / Plotly | Segment Output Dict | Interactive Maps & PDF Reports |
+| **Inference** | XGBoost / Joblib Pipeline | Standardized Feature Matrix | Risk Class `string` & Probabilities `dict` |
+| **Export** | OpenPyXL / Pandas / JSON | Segment Output Dict | Timestamped `.xlsx` Sheet, `.csv`, `.json`, & `.mp4` |

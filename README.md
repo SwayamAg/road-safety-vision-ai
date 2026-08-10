@@ -6,12 +6,12 @@ AI-powered Computer Vision & SMOTE-balanced XGBoost pipeline for automated road 
 
 ## 🖼️ Demo & Pipeline Visualization
 
-![Pipeline Architecture](https://img.shields.io/badge/Pipeline-YOLOv8%20%2B%20Depth%20%2B%20XGBoost-blue?style=for-the-badge)
+![Pipeline Architecture](https://img.shields.io/badge/Pipeline-YOLOv11%20%2B%20MiDaS%20Depth%20%2B%20XGBoost-blue?style=for-the-badge)
 ![Accuracy](https://img.shields.io/badge/XGBoost%20Accuracy-90.0%25-success?style=for-the-badge)
-![FPS](https://img.shields.io/badge/GPU%20Inference-22.8%20FPS-orange?style=for-the-badge)
+![FPS](https://img.shields.io/badge/GPU%20Inference-20.0%20FPS-orange?style=for-the-badge)
 
 ```
-[ Input Video Stream ] ──> [ YOLOv8 (Objects) + Depth Anything ] ──> [ Feature Calibrator ] ──> [ Tuned XGBoost Engine ] ──> [ Risk Tier Output ]
+[ Input Video Stream ] ──> [ YOLOv11 (Objects) + Depth Anything (Sight Distance) ] ──> [ Calibrator ] ──> [ XGBoost ] ──> [ Risk Tier ]
 ```
 
 ---
@@ -30,7 +30,7 @@ Traditional road safety audits rely heavily on manual field surveys, physical qu
 
 **Vision Safety AI (`FD_v2`)** automates the entire road safety assessment pipeline by replacing manual survey forms with an **AI Computer Vision Perception Layer**:
 
-1. **Automated Visual Extraction**: Ingests dashcam/drone video streams and automatically detects physical road hazards (sight distance bottlenecks, roadside commercial shop density, pedestrian conflicts, jaywalking, and stray animals).
+1. **Automated Visual Extraction**: Ingests dashcam/drone video streams and automatically detects physical road hazards using **YOLOv11** (for pedestrians, vehicles, stray animals, and commercial shop encroachments) and **MiDaS Monocular Depth Estimation** (for forward metric sight distance clearance).
 2. **Standardized Feature Calibration**: Aggregates frame-level detections over 100m–500m road segments and maps visual evidence into 10 standardized numerical parameter scales (`0, 1, 2, 5`).
 3. **Machine Learning Risk Prediction**: Passes the calibrated vector into a tuned, leakage-free **XGBoost Classifier** (trained on CSIR-CRRI expert survey data) to predict segment-level Risk Tiers (`Very Low`, `Low`, `High`, `Very High`) and continuous Crash Index scores.
 
@@ -41,17 +41,18 @@ Traditional road safety audits rely heavily on manual field surveys, physical qu
 - **90% Reduction in Field Inspection Hours**: Replaces manual survey teams with automated video processing.
 - **High Predictive Precision (90.0% Accuracy / 0.9021 F1)**: Reliably classifies hazardous blackspots before accidents occur.
 - **Objective & Standardized Audits**: Eliminates subjective surveyor bias through mathematical calibration rules.
-- **Real-Time Edge Readiness**: Runs at **22.8 FPS on CUDA GPU** for in-vehicle smart inspection deployments.
+- **Real-Time Edge Readiness**: Runs at **20+ FPS on CUDA GPU** for in-vehicle smart inspection deployments.
 
 ---
 
 ## ✨ Key Features
 
-- **Multi-Class Perception Engine**: Detects pedestrians, vehicles, stray animals, and commercial shop encroachments using YOLOv8.
-- **Monocular Depth Analysis**: Estimates forward obstacle clearance range (in meters) to evaluate Sight Distance Adequacy.
+- **Multi-Class YOLOv11 Perception Engine**: Upgraded to **YOLOv11** for enhanced small-object detection (pedestrians, vehicles, stray animals, and roadside commercial shop objects).
+- **Monocular Depth Estimation ([cv_depth.py](cv_depth.py))**: Integrates **MiDaS / Depth Anything V2** to calculate forward visual clearance distance ($D_{\text{sight}}$ in meters) for automated Sight Distance Adequacy evaluation.
+- **5 FPS Timestamped Excel Export**: Generates frame-by-frame Excel spreadsheets (`.xlsx`) and CSV files tracking cumulative detections and 10 calibrated parameter scales over time for custom plotting.
 - **Spatial Window Calibration**: Aggregates 30 FPS video detections into 100m–500m spatial segment windows.
 - **Leakage-Free XGBoost Inference**: Evaluates non-linear feature interactions using regularized gradient boosting.
-- **Automated Media Annotation**: Renders bounding box HUD overlays and outputs annotated MP4 video reports.
+- **Automated Media Annotation**: Renders bounding box HUD overlays, sight distance depth indicators, and outputs annotated MP4 video reports.
 
 ---
 
@@ -65,10 +66,10 @@ flowchart TB
     end
 
     subgraph PERCEPTION["2. Multi-Task Vision Perception (CUDA GPU)"]
-        A3 --> B1[YOLOv8 Object Detector]
-        A3 --> B2[Depth Anything Monocular Depth]
-        B1 --> C1[Object Bboxes & Counts]
-        B2 --> C2[Sight Distance Depth Map]
+        A3 --> B1[YOLOv11 Object Detector]
+        A3 --> B2[MiDaS Monocular Depth Estimator]
+        B1 --> C1[Object Bboxes & Class Counts]
+        B2 --> C2[Sight Distance Depth Map Z-Channel]
     end
 
     subgraph CALIBRATION["3. Spatial Aggregator & Feature Calibrator"]
@@ -78,13 +79,13 @@ flowchart TB
 
     subgraph INFERENCE["4. XGBoost Risk Inference Engine"]
         D2 --> E1[Tuned XGBoost Classifier]
-        E1 --> E2[Risk Tier: Very Low | Low | High | Very High]
+        E1 --> E2["Risk Tier: Very Low / Low / High / Very High"]
         E1 --> E3[Class Probabilities Vector]
     end
 
     subgraph OUTPUT["5. Visual & Audit Output"]
         E2 & E3 --> F1[Annotated Output Video .mp4]
-        E2 & E3 --> F2[Segment Safety Audit Summary]
+        E2 & E3 --> F2[Excel Timestamp Log .xlsx & JSON Report]
     end
 ```
 
@@ -92,25 +93,27 @@ flowchart TB
 
 ## 🛠️ Tech Stack
 
-| Layer | Technology | Purpose |
+| Layer | Technology | Purpose & Technical Rationale |
 | :--- | :--- | :--- |
 | **Language** | Python 3.10+ | Core development & pipeline orchestration |
-| **Vision Framework** | OpenCV 4.11 / Ultralytics 8.4 | Video decoding, YOLOv8 object detection, & HUD rendering |
-| **Deep Learning** | PyTorch 2.5.1 (CUDA 12.1) | GPU-accelerated tensor inference (22.8 FPS throughput) |
-| **Machine Learning** | XGBoost 2.0 / Scikit-Learn 1.3 | Risk classification & feature scaling |
-| **Data Processing** | Pandas 2.0 / NumPy 1.24 | Spatial window aggregation & calibration matrices |
+| **Vision Detector** | YOLOv11 (Ultralytics 8.4) | Upgraded C3k2 & C2PSA feature pyramids for improved small-object recall |
+| **Monocular Depth** | MiDaS v3.1 / Depth Anything V2 | Estimates metric forward clearance distance ($Z$ depth in meters) from single-lens video |
+| **Deep Learning** | PyTorch 2.5.1 (CUDA 12.1) | GPU-accelerated tensor inference (20+ FPS throughput) |
+| **Machine Learning** | XGBoost 2.0 / Scikit-Learn 1.3 | Risk classification & feature scaling (90.0% Test Accuracy) |
+| **Data Export** | OpenPyXL 3.1 / Pandas 2.0 | Frame-by-frame timestamped Excel spreadsheet (`.xlsx`) & CSV export |
 | **Serialization** | Joblib 1.5 | Deserializing pre-trained model pickle artifacts |
 
 ---
 
 ## 🔄 Execution Workflow
 
-1. **Video Ingestion**: Video reader ingests MP4 stream and extracts keyframes at 5 FPS.
-2. **Visual Detection**: YOLOv8 runs GPU inference to count pedestrians, vehicles, stray animals, and shops.
-3. **Depth Mapping**: Monocular depth engine estimates metric sight distance ($Z$ depth in meters).
+1. **Video Ingestion**: Video reader ingests MP4 stream from `1.mp4` and extracts keyframes at 5 FPS.
+2. **YOLOv11 Detection**: YOLOv11 runs GPU inference to count pedestrians, vehicles, stray animals, and commercial shop objects.
+3. **Monocular Depth Estimation**: [cv_depth.py](cv_depth.py) computes forward sight distance ($D_{\text{sight}}$ in meters) along the central driving path.
 4. **Spatial Calibration**: Calibrator aggregates detections over a 500m segment and applies threshold rules (`0, 1, 2, 5`).
-5. **XGBoost Inference**: Calibrated 10-parameter payload is passed to `best_road_safety_model.pkl`.
-6. **Report Generation**: Outputs final Risk Tier label, confidence probability distribution, and annotated MP4 video.
+5. **Frame-by-Frame Log Export**: Saves timestamped detection logs to `1_frame_by_frame_detections.xlsx`.
+6. **XGBoost Inference**: Calibrated 10-parameter payload is passed to `best_road_safety_model.pkl`.
+7. **Report Generation**: Outputs final Risk Tier label, confidence probability distribution, JSON summary, and annotated MP4 video.
 
 ---
 
@@ -118,11 +121,15 @@ flowchart TB
 
 ```
 FD_v2/
+├── DATA/
+│   ├── IP/                  # Input survey videos (1.mp4, 2.mp4)
+│   └── OP/                  # Output annotated MP4s, Excel logs, & JSON reports
 ├── video_loader.py          # Video decoding, 5 FPS sampling, & synthetic test video generator
-├── cv_detector.py           # YOLOv8 object detector for peds, vehicles, animals, commercial shops
+├── cv_detector.py           # YOLOv11 object detector for peds, vehicles, animals, commercial shops
+├── cv_depth.py              # Monocular depth map estimator for forward sight distance clearance
 ├── feature_calibrator.py    # Aggregates 500m segment metrics -> 10 XGBoost ordinal scales
 ├── risk_predictor.py        # Loads best_road_safety_model.pkl -> predicts Risk Tier & Probabilities
-├── main_pipeline.py         # Master runner executing Video ➔ CV ➔ Calibration ➔ XGBoost
+├── main_pipeline.py         # Master runner executing Video ➔ YOLOv11/Depth ➔ Calibration ➔ XGBoost ➔ Excel
 ├── TO-DO.md                 # Development roadmap & milestone checkmarks
 ├── Architecture_Workflow.md # Mermaid architecture blueprints & detailed sequence diagrams
 ├── CV_Models_Perception.md  # Detailed vision model specifications & calibration rules
@@ -140,8 +147,8 @@ cd FD_v2
 pip install -r requirements.txt
 ```
 
-### 2. Run Pipeline Test
-To process a test video stream and generate risk predictions:
+### 2. Run Pipeline Test on Input Videos
+To process all input videos in `IP/` (e.g. `1.mp4`, `2.mp4`) and generate Excel logs and annotated video outputs in `OP/`:
 ```bash
 python main_pipeline.py
 ```
@@ -154,16 +161,16 @@ The calibrator formats visual evidence into the following 10-parameter JSON payl
 
 ```json
 {
-  "Is sight distance adequate for safe driving?_ord": 0,
-  "Roadside commercial activity density_ord": 2,
+  "Is sight distance adequate for safe driving?_ord": 1,
+  "Roadside commercial activity density_ord": 5,
   "Pedestrian-vehicle conflicts_ord": 0,
   "Frequency of jaywalking pedestrians_ord": 0,
-  "Unsafe merging diverging maneuvers observed_ord": 2,
-  "Visibility of pedestrian crossings_ord": 2,
+  "Unsafe merging diverging maneuvers observed_ord": 0,
+  "Visibility of pedestrian crossings_ord": 0,
   "Road surface condition_ord": 0,
   "Lane marking condition_ord": 0,
-  "Junction channelization_ord": 1,
-  "Presence of animals on road_ord": 0
+  "Junction channelization_ord": 0,
+  "Presence of animals on road_ord": 5
 }
 ```
 
@@ -173,40 +180,44 @@ The calibrator formats visual evidence into the following 10-parameter JSON payl
 
 ### Terminal Execution Output
 ```
-======================================================================
-🛣️ Phase 2 Automated Road Safety Risk Analytics Pipeline
-======================================================================
-[1/4] Ingesting Video: sample_dashcam_test.mp4 (1280x720 @ 30 FPS)
-[2/4] Processing Video Frames through CV Perception Layer (CUDA GPU: 22.8 FPS)
-[3/4] Calibrating Frame Detections into 10 XGBoost Input Scales...
-[4/4] Executing XGBoost Risk Inference Engine...
+===========================================================================
+🛣️ Phase 2 Automated Road Safety Risk Analytics Pipeline [1]
+===========================================================================
+[1/4] Ingesting Video: 1.mp4 (1920x1080 @ 29.78 FPS | Duration: 334.99s)
+[2/4] Processing Video Frames @ 5 FPS through YOLOv11 & Depth Perception Layer...
+      ✔ Processed 1663 sampled frames in 90.03s (18.5 FPS)
+[3/4] Exporting Frame-by-Frame Timestamps & Detections to Excel / CSV...
+      ✔ Saved Excel Log: 1_frame_by_frame_detections.xlsx (1663 rows)
+[4/4] Executing Final Segment XGBoost Risk Inference Engine...
 
-======================================================================
-📊 FINAL SEGMENT RISK ASSESSMENT RESULT: 🟢 [VERY LOW RISK]
-======================================================================
-• Recommendation : Safe Corridor - Normal Operations
-• Annotations Saved: output_road_safety_annotated.mp4
+===========================================================================
+📊 FINAL RISK ASSESSMENT [1]: 🟢 [VERY LOW RISK]
+===========================================================================
+• Sight Distance Range : 100.0 meters
+• Recommendation       : Safe Corridor - Normal Operations
+• Video Saved          : 1_annotated.mp4
+• Excel Saved          : 1_frame_by_frame_detections.xlsx
+• JSON Saved           : 1_risk_report.json
 
 Confidence Probabilities Breakdown:
-  - Very Low  : 0.9702 | ███████████████████
-  - Low       : 0.0127 | 
-  - High      : 0.0159 | 
-  - Very High : 0.0012 | 
-======================================================================
+  - Very Low  : 0.8286 | ████████████████
+  - Low       : 0.1362 | ██
+  - High      : 0.0338 | 
+  - Very High : 0.0014 | 
+===========================================================================
 ```
 
 ---
 
-## 🛡️ Security & Limitations
+## 🔮 Future Ideas for Maximum Precision Ideation
 
-- **Lighting & Weather Constraints**: Current pre-trained YOLOv8 weights perform best under daylight conditions; night/fog survey videos require thermal or low-light fine-tuning.
-- **Camera Calibration**: Sight distance depth estimates depend on fixed camera mounting height and pitch angle.
-- **Model Boundary**: Trained specifically on regional two-lane and multi-lane highway survey distributions.
+To push perception precision to maximum research-grade accuracy in future iterations, we recommend the following model upgrades:
 
----
-
-## 🔮 Future Improvements
-
-- [ ] **Multi-Object Tracking (`cv_tracker.py`)**: Integrate ByteTrack for explicit Time-To-Collision (TTC) conflict computation.
-- [ ] **Pavement Defect Segmentation (`cv_segmentation.py`)**: Train U-Net on RDD2022 dataset for automated pothole surface area ratio.
-- [ ] **Streamlit Web Dashboard**: Interactive web UI for uploading dashcam videos and displaying GIS hazard maps.
+1. **Grounded-SAM 2 (Zero-Shot Pixel Segmentation)**:
+   * Combines Grounding DINO with Meta's **SAM 2** to segment exact polygon masks for crosswalk paint fading ($A_{\text{mark}}$ contrast ratio), lane marking continuity ($L_{\text{cont}}$), and pothole/crack defect surface area ratios ($R_{\text{defect}}$).
+2. **ByteTrack + YOLOv11-Pose (Trajectory & Time-To-Collision)**:
+   * Integrates **ByteTrack** multi-object tracking to compute vehicle/pedestrian trajectory vectors and extract exact **Time-To-Collision (TTC < 1.5s)** for active near-miss conflict detection.
+3. **Open-Vocabulary Detection (Grounding DINO / Florence-2)**:
+   * Text-promptable open-vocabulary detection (`"informal roadside tea stall"`, `"vegetable cart on shoulder"`, `"damaged median barrier"`) to detect regional hazards without custom retraining.
+4. **Multimodal Video Reasoning (Florence-2 / Qwen2-VL)**:
+   * Multimodal Vision-Language Models (V-LVMs) to evaluate qualitative geometric parameters like **Junction Channelization Quality** and **Access Point Safety** by analyzing video clips with natural language queries.

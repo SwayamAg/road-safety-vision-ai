@@ -3,9 +3,11 @@ import sys
 import cv2
 import time
 import json
+import numpy as np
 import pandas as pd
 from video_loader import VideoFrameReader
 from cv_detector import RoadSafetyDetector
+from cv_depth import SightDistanceDepthEstimator
 from feature_calibrator import FeatureCalibrator
 from risk_predictor import RiskPredictor
 
@@ -21,8 +23,9 @@ def format_timestamp(seconds: float) -> str:
 def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP"):
     """
     Master End-to-End Execution Pipeline for Phase 2 Road Safety Risk Analytics.
-    Processes video streams, detects CV objects @ 5 FPS timestamps, exports frame-by-frame Excel/CSV,
-    calibrates XGBoost inputs, predicts Risk Tier, and outputs annotated MP4 video & JSON report.
+    Processes video streams, detects CV objects @ 5 FPS using YOLOv11 + Depth Anything, 
+    exports frame-by-frame Excel/CSV, calibrates XGBoost inputs, predicts Risk Tier, 
+    and outputs annotated MP4 video & JSON report.
     """
     os.makedirs(output_dir, exist_ok=True)
     video_basename = os.path.splitext(os.path.basename(video_path))[0]
@@ -43,20 +46,22 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP"):
     print(f"      • Resolution: {info['resolution'][0]}x{info['resolution'][1]}")
     print(f"      • Native FPS: {info['native_fps']} | Duration: {info['duration_sec']}s ({info['total_frames']} frames)")
     
-    # 2. Initialize Computer Vision Detector & Model Predictor
-    detector = RoadSafetyDetector(model_weights="yolov8n.pt")
+    # 2. Initialize Computer Vision Perception Engines (YOLOv11 + Depth Estimator)
+    detector = RoadSafetyDetector(model_weights="yolo11n.pt")
+    depth_estimator = SightDistanceDepthEstimator()
     predictor = RiskPredictor(model_dir="../Ready dataset")
     
-    print("\n[2/4] Processing Video Frames @ 5 FPS through CV Perception Layer...")
+    print("\n[2/4] Processing Video Frames @ 5 FPS through YOLOv11 & Depth Perception Layer...")
     
     cum_metrics = {
         "commercial_count": 0,
         "pedestrian_count": 0,
         "animal_count": 0,
         "vehicle_count": 0,
-        "avg_sight_distance_m": 85.0
+        "avg_sight_distance_m": 100.0
     }
     
+    frame_sight_distances = []
     frame_logs = []
     
     # Set up VideoWriter for annotated output video
@@ -67,14 +72,19 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP"):
     t_start = time.time()
     
     for frame_idx, timestamp, orig_frame, resized_frame in reader.extract_frames(sample_fps=5.0):
-        # Run Object Detection
+        # Run YOLOv11 Object Detection
         dets = detector.detect_frame(resized_frame)
         
-        # Accumulate cumulative counts
+        # Estimate Metric Sight Distance via Monocular Depth Map
+        frame_sight_m = depth_estimator.estimate_sight_distance(resized_frame)
+        frame_sight_distances.append(frame_sight_m)
+        
+        # Accumulate cumulative object counts
         cum_metrics["commercial_count"] += dets["commercial_count"]
         cum_metrics["pedestrian_count"] += dets["pedestrian_count"]
         cum_metrics["animal_count"] += dets["animal_count"]
         cum_metrics["vehicle_count"] += dets["vehicle_count"]
+        cum_metrics["avg_sight_distance_m"] = float(np.median(frame_sight_distances))
         
         # Calibrate intermediate payload at this timestamp
         calibrated_at_frame = FeatureCalibrator.calibrate_segment_metrics(cum_metrics)
@@ -85,6 +95,7 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP"):
             "frame_index": frame_idx,
             "timestamp_sec": round(timestamp, 2),
             "timestamp_formatted": format_timestamp(timestamp),
+            "estimated_sight_distance_m": frame_sight_m,
             "pedestrians_in_frame": dets["pedestrian_count"],
             "vehicles_in_frame": dets["vehicle_count"],
             "animals_in_frame": dets["animal_count"],
@@ -113,6 +124,11 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP"):
         
         # Annotate HUD & write to output video
         annotated_frame = detector.annotate_frame(resized_frame, dets)
+        
+        # Add Sight Distance HUD overlay
+        cv2.putText(annotated_frame, f"Sight Dist: {frame_sight_m:.1f}m", (20, 65), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                    
         writer.write(annotated_frame)
         processed_frames += 1
 
@@ -142,6 +158,7 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP"):
             "processed_frames": processed_frames,
             "processing_time_sec": round(t_elapsed, 2),
             "fps_throughput": round(processed_frames / t_elapsed, 1),
+            "median_sight_distance_m": round(cum_metrics["avg_sight_distance_m"], 1),
             "total_pedestrians_detected": cum_metrics["pedestrian_count"],
             "total_vehicles_detected": cum_metrics["vehicle_count"],
             "total_animals_detected": cum_metrics["animal_count"],
@@ -164,10 +181,11 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP"):
     print("\n" + "=" * 75)
     print(f"📊 FINAL RISK ASSESSMENT [{video_basename}]: {final_result['emoji']} [{final_result['predicted_risk_tier'].upper()} RISK]")
     print("=" * 75)
-    print(f"• Recommendation : {final_result['description']}")
-    print(f"• Video Saved    : {output_annotated_path}")
-    print(f"• Excel Saved    : {output_excel_path}")
-    print(f"• JSON Saved     : {output_json_path}")
+    print(f"• Sight Distance Range : {cum_metrics['avg_sight_distance_m']:.1f} meters")
+    print(f"• Recommendation       : {final_result['description']}")
+    print(f"• Video Saved          : {output_annotated_path}")
+    print(f"• Excel Saved          : {output_excel_path}")
+    print(f"• JSON Saved           : {output_json_path}")
     print("\nConfidence Probabilities Breakdown:")
     for tier, prob in final_result["probabilities"].items():
         bar = "█" * int(prob * 20)

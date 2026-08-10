@@ -14,9 +14,9 @@ class RoadSafetyDetector:
     COCO_VEHICLE_CLASSES = {2: 'car', 3: 'motorcycle', 5: 'bus', 7: 'truck'}
     COCO_PEDESTRIAN_CLASSES = {0: 'person'}
     
-    def __init__(self, model_weights: str = "yolov8n.pt", conf_threshold: float = 0.25):
+    def __init__(self, model_weights: str = "yolo11n.pt", conf_threshold: float = 0.25):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        print(f"Loading YOLO model [{model_weights}] on device: {self.device.upper()}")
+        print(f"Loading YOLOv11 Model [{model_weights}] on device: {self.device.upper()}")
         self.model = YOLO(model_weights)
         self.conf_threshold = conf_threshold
 
