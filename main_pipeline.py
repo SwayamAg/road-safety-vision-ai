@@ -20,7 +20,7 @@ def format_timestamp(seconds: float) -> str:
     secs = seconds % 60
     return f"{mins:02d}:{secs:04.1f}"
 
-def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP"):
+def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V2"):
     """
     Master End-to-End Execution Pipeline for Phase 2 Road Safety Risk Analytics.
     Processes video streams, detects CV objects @ 5 FPS using YOLOv11 + Depth Anything, 
@@ -194,10 +194,10 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP"):
     return audit_report
 
 
-def process_all_input_videos(input_dir: str = "DATA/IP", output_dir: str = "DATA/OP"):
+def process_all_input_videos(input_dir: str = "DATA/IP", output_dir: str = "DATA/OP_V2"):
     """
     Sequentially processes all MP4 videos in DATA/IP/ (e.g. 1.mp4, 2.mp4)
-    and saves output videos, Excel/CSV timestamp logs, and JSON reports in DATA/OP/.
+    and saves output videos, Excel/CSV timestamp logs, and JSON reports in DATA/OP_V2/.
     """
     video_files = [f for f in os.listdir(input_dir) if f.endswith('.mp4')]
     video_files.sort()
@@ -210,4 +210,4 @@ def process_all_input_videos(input_dir: str = "DATA/IP", output_dir: str = "DATA
 
 
 if __name__ == "__main__":
-    process_all_input_videos(input_dir="DATA/IP", output_dir="DATA/OP")
+    process_all_input_videos(input_dir="DATA/IP", output_dir="DATA/OP_V2")

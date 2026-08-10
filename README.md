@@ -52,7 +52,7 @@ Traditional road safety audits rely heavily on manual field surveys, physical qu
 - **5 FPS Timestamped Excel Export**: Generates frame-by-frame Excel spreadsheets (`.xlsx`) and CSV files tracking cumulative detections and 10 calibrated parameter scales over time for custom plotting.
 - **Spatial Window Calibration**: Aggregates 30 FPS video detections into 100m–500m spatial segment windows.
 - **Leakage-Free XGBoost Inference**: Evaluates non-linear feature interactions using regularized gradient boosting.
-- **Automated Media Annotation**: Renders bounding box HUD overlays, sight distance depth indicators, and outputs annotated MP4 video reports.
+- **Automated Media Annotation**: Renders bounding box HUD overlays, sight distance depth indicators, and outputs annotated MP4 video reports to `DATA/OP_V2/`.
 
 ---
 
@@ -83,7 +83,7 @@ flowchart TB
         E1 --> E3[Class Probabilities Vector]
     end
 
-    subgraph OUTPUT["5. Visual & Audit Output"]
+    subgraph OUTPUT["5. Visual & Audit Output (DATA/OP_V2)"]
         E2 & E3 --> F1[Annotated Output Video .mp4]
         E2 & E3 --> F2[Excel Timestamp Log .xlsx & JSON Report]
     end
@@ -107,13 +107,13 @@ flowchart TB
 
 ## 🔄 Execution Workflow
 
-1. **Video Ingestion**: Video reader ingests MP4 stream from `1.mp4` and extracts keyframes at 5 FPS.
+1. **Video Ingestion**: Video reader ingests MP4 stream from `DATA/IP/1.mp4` and extracts keyframes at 5 FPS.
 2. **YOLOv11 Detection**: YOLOv11 runs GPU inference to count pedestrians, vehicles, stray animals, and commercial shop objects.
 3. **Monocular Depth Estimation**: [cv_depth.py](cv_depth.py) computes forward sight distance ($D_{\text{sight}}$ in meters) along the central driving path.
 4. **Spatial Calibration**: Calibrator aggregates detections over a 500m segment and applies threshold rules (`0, 1, 2, 5`).
-5. **Frame-by-Frame Log Export**: Saves timestamped detection logs to `1_frame_by_frame_detections.xlsx`.
+5. **Frame-by-Frame Log Export**: Saves timestamped detection logs to `DATA/OP_V2/1_frame_by_frame_detections.xlsx`.
 6. **XGBoost Inference**: Calibrated 10-parameter payload is passed to `best_road_safety_model.pkl`.
-7. **Report Generation**: Outputs final Risk Tier label, confidence probability distribution, JSON summary, and annotated MP4 video.
+7. **Report Generation**: Outputs final Risk Tier label, confidence probability distribution, JSON summary, and annotated MP4 video to `DATA/OP_V2/`.
 
 ---
 
@@ -123,13 +123,15 @@ flowchart TB
 FD_v2/
 ├── DATA/
 │   ├── IP/                  # Input survey videos (1.mp4, 2.mp4)
-│   └── OP/                  # Output annotated MP4s, Excel logs, & JSON reports
+│   ├── OP_V1/               # Baseline YOLOv8 output baseline
+│   └── OP_V2/               # Upgraded YOLO11 + MiDaS Depth outputs & Excel logs
 ├── video_loader.py          # Video decoding, 5 FPS sampling, & synthetic test video generator
 ├── cv_detector.py           # YOLOv11 object detector for peds, vehicles, animals, commercial shops
 ├── cv_depth.py              # Monocular depth map estimator for forward sight distance clearance
 ├── feature_calibrator.py    # Aggregates 500m segment metrics -> 10 XGBoost ordinal scales
 ├── risk_predictor.py        # Loads best_road_safety_model.pkl -> predicts Risk Tier & Probabilities
 ├── main_pipeline.py         # Master runner executing Video ➔ YOLOv11/Depth ➔ Calibration ➔ XGBoost ➔ Excel
+├── Model_Benchmark_Comparison.md # OP_V1 vs OP_V2 performance & compute metrics comparison report
 ├── TO-DO.md                 # Development roadmap & milestone checkmarks
 ├── Architecture_Workflow.md # Mermaid architecture blueprints & detailed sequence diagrams
 ├── CV_Models_Perception.md  # Detailed vision model specifications & calibration rules
@@ -148,7 +150,7 @@ pip install -r requirements.txt
 ```
 
 ### 2. Run Pipeline Test on Input Videos
-To process all input videos in `IP/` (e.g. `1.mp4`, `2.mp4`) and generate Excel logs and annotated video outputs in `OP/`:
+To process all input videos in `DATA/IP/` (e.g. `1.mp4`, `2.mp4`) and generate Excel logs and annotated video outputs in `DATA/OP_V2/`:
 ```bash
 python main_pipeline.py
 ```
@@ -183,21 +185,21 @@ The calibrator formats visual evidence into the following 10-parameter JSON payl
 ===========================================================================
 🛣️ Phase 2 Automated Road Safety Risk Analytics Pipeline [1]
 ===========================================================================
-[1/4] Ingesting Video: 1.mp4 (1920x1080 @ 29.78 FPS | Duration: 334.99s)
+[1/4] Ingesting Video: DATA/IP/1.mp4 (1920x1080 @ 29.78 FPS | Duration: 334.99s)
 [2/4] Processing Video Frames @ 5 FPS through YOLOv11 & Depth Perception Layer...
-      ✔ Processed 1663 sampled frames in 90.03s (18.5 FPS)
+      ✔ Processed 1663 sampled frames in 144.62s (11.5 FPS)
 [3/4] Exporting Frame-by-Frame Timestamps & Detections to Excel / CSV...
-      ✔ Saved Excel Log: 1_frame_by_frame_detections.xlsx (1663 rows)
+      ✔ Saved Excel Log: DATA/OP_V2/1_frame_by_frame_detections.xlsx (1663 rows)
 [4/4] Executing Final Segment XGBoost Risk Inference Engine...
 
 ===========================================================================
 📊 FINAL RISK ASSESSMENT [1]: 🟢 [VERY LOW RISK]
 ===========================================================================
-• Sight Distance Range : 100.0 meters
+• Sight Distance Range : 86.3 meters
 • Recommendation       : Safe Corridor - Normal Operations
-• Video Saved          : 1_annotated.mp4
-• Excel Saved          : 1_frame_by_frame_detections.xlsx
-• JSON Saved           : 1_risk_report.json
+• Video Saved          : DATA/OP_V2/1_annotated.mp4
+• Excel Saved          : DATA/OP_V2/1_frame_by_frame_detections.xlsx
+• JSON Saved           : DATA/OP_V2/1_risk_report.json
 
 Confidence Probabilities Breakdown:
   - Very Low  : 0.8286 | ████████████████
