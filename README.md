@@ -49,8 +49,8 @@ Traditional road safety audits rely heavily on manual field surveys, physical qu
 
 ## ✨ Key Features
 
-- **High-Resolution YOLO11 Perception Engine ([cv_detector.py](cv_detector.py))**: Upgraded to **YOLO11** running at **`1280x1280` resolution** with C3k2 & C2PSA feature pyramids for maximum small/distant object recall.
-- **Monocular Depth Estimation ([cv_depth.py](cv_depth.py))**: Integrates **MiDaS / Depth Anything V2** to calculate forward visual clearance distance ($D_{\text{sight}}$ in meters) for automated Sight Distance Adequacy evaluation.
+- **High-Resolution YOLO11 Perception Engine (cv_detector.py)**: Upgraded to **YOLO11** running at **`1280x1280` resolution** with C3k2 & C2PSA feature pyramids for maximum small/distant object recall.
+- **Monocular Depth Estimation (cv_depth.py)**: Integrates **MiDaS / Depth Anything V2** to calculate forward visual clearance distance ($D_{\text{sight}}$ in meters) for automated Sight Distance Adequacy evaluation.
 - **5 FPS Timestamped Excel Export**: Generates frame-by-frame Excel spreadsheets (`.xlsx`) and CSV files tracking cumulative detections, depth meters, and 10 calibrated parameter scales over time for custom plotting.
 - **Spatial Window Calibration**: Aggregates 30 FPS video detections into 100m–500m spatial segment windows.
 - **Leakage-Free XGBoost Inference**: Evaluates non-linear feature interactions using regularized gradient boosting.
@@ -111,7 +111,7 @@ flowchart TB
 
 1. **Video Ingestion**: Video reader ingests MP4 stream from `DATA/IP/1.mp4` and extracts keyframes at 5 FPS.
 2. **High-Res YOLO11 Detection**: YOLO11 runs GPU inference at `1280x1280` to count pedestrians, vehicles, stray animals, and commercial shop objects.
-3. **Monocular Depth Estimation**: [cv_depth.py](cv_depth.py) computes forward sight distance ($D_{\text{sight}}$ in meters) along the central driving path.
+3. **Monocular Depth Estimation**: cv_depth.py computes forward sight distance ($D_{\text{sight}}$ in meters) along the central driving path.
 4. **Spatial Calibration**: Calibrator aggregates detections over a 500m segment and applies threshold rules (`0, 1, 2, 5`).
 5. **Frame-by-Frame Log Export**: Saves timestamped detection logs to `DATA/OP_V3/1_frame_by_frame_detections.xlsx`.
 6. **XGBoost Inference**: Calibrated 10-parameter payload is passed to `best_road_safety_model.pkl`.
