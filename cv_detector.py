@@ -14,18 +14,19 @@ class RoadSafetyDetector:
     COCO_VEHICLE_CLASSES = {2: 'car', 3: 'motorcycle', 5: 'bus', 7: 'truck'}
     COCO_PEDESTRIAN_CLASSES = {0: 'person'}
     
-    def __init__(self, model_weights: str = "yolo11n.pt", conf_threshold: float = 0.25):
+    def __init__(self, model_weights: str = "yolo11n.pt", conf_threshold: float = 0.25, imgsz: int = 1280):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        print(f"Loading YOLOv11 Model [{model_weights}] on device: {self.device.upper()}")
+        self.imgsz = imgsz
+        print(f"Loading YOLOv11 Model [{model_weights}] @ imgsz={self.imgsz} on device: {self.device.upper()}")
         self.model = YOLO(model_weights)
         self.conf_threshold = conf_threshold
 
     def detect_frame(self, frame: np.ndarray) -> dict:
         """
-        Runs object detection on a single RGB/BGR frame.
+        Runs object detection on a single RGB/BGR frame at target imgsz resolution.
         Returns aggregated counts and detailed bounding box detections.
         """
-        results = self.model.predict(source=frame, conf=self.conf_threshold, device=self.device, verbose=False)[0]
+        results = self.model.predict(source=frame, conf=self.conf_threshold, imgsz=self.imgsz, device=self.device, verbose=False)[0]
         
         detections = {
             "pedestrian_count": 0,
