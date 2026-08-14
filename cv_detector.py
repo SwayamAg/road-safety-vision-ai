@@ -20,8 +20,13 @@ class RoadSafetyDetector:
     def __init__(self, model_weights: str = "yolo11m.pt", conf_threshold: float = 0.20, imgsz: int = 1280):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.imgsz = imgsz
-        print(f"Loading YOLO11 Medium Model [{model_weights}] @ imgsz={self.imgsz} on device: {self.device.upper()}")
-        self.model = YOLO(model_weights)
+        
+        # Check models/ directory first
+        local_weights = os.path.join("models", model_weights)
+        weights_to_load = local_weights if os.path.exists(local_weights) else model_weights
+        
+        print(f"Loading YOLO11 Medium Model [{weights_to_load}] @ imgsz={self.imgsz} on device: {self.device.upper()}")
+        self.model = YOLO(weights_to_load)
         self.conf_threshold = conf_threshold
 
     def detect_frame(self, frame: np.ndarray) -> dict:

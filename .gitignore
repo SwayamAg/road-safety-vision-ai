@@ -16,6 +16,7 @@ ENV/
 *.joblib
 *.pth
 *.pt
+!models/*.pt
 *.onnx
 *.engine
 
