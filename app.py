@@ -82,8 +82,8 @@ async def check_models_status():
     device_name = torch.cuda.get_device_name(0) if cuda_available else "CPU"
     
     detector_status = "LOADED" if MODEL_STATE["detector"] is not None else "NOT_LOADED"
-    depth_status = "LOADED" if MODEL_STATE["depth_estimator"] is not None and MODEL_STATE["depth_estimator"].is_loaded else "FALLBACK_MODE"
-    predictor_status = "LOADED" if MODEL_STATE["predictor"] is not None and MODEL_STATE["predictor"].is_loaded else "NOT_LOADED"
+    depth_status = "LOADED" if MODEL_STATE["depth_estimator"] is not None else "NOT_LOADED"
+    predictor_status = "LOADED" if MODEL_STATE["predictor"] is not None and getattr(MODEL_STATE["predictor"], "model", None) is not None else "NOT_LOADED"
     
     is_healthy = (detector_status == "LOADED") and (predictor_status == "LOADED")
     
