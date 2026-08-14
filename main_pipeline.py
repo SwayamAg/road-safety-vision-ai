@@ -20,7 +20,7 @@ def format_timestamp(seconds: float) -> str:
     secs = seconds % 60
     return f"{mins:02d}:{secs:04.1f}"
 
-def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V4", model_weights: str = "yolo11m.pt", imgsz: int = 1280):
+def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V4", model_weights: str = "models/yolo11m.pt", imgsz: int = 1280):
     """
     Master End-to-End Execution Pipeline for Phase 2 Road Safety Risk Analytics.
     Processes video streams @ imgsz=1280 resolution using YOLO11 Medium (yolo11m.pt) + PyTorch MiDaS Depth,
@@ -203,7 +203,7 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V4", mo
     return audit_report
 
 
-def process_all_input_videos(input_dir: str = "DATA/IP", output_dir: str = "DATA/OP_V4", model_weights: str = "yolo11m.pt", imgsz: int = 1280):
+def process_all_input_videos(input_dir: str = "DATA/IP", output_dir: str = "DATA/OP_V4", model_weights: str = "models/yolo11m.pt", imgsz: int = 1280):
     """
     Sequentially processes all MP4 videos in DATA/IP/ (e.g. 1.mp4, 2.mp4)
     using YOLO11 Medium @ imgsz=1280 and saves output videos, Excel/CSV timestamp logs, and JSON reports in DATA/OP_V4/.
@@ -219,4 +219,4 @@ def process_all_input_videos(input_dir: str = "DATA/IP", output_dir: str = "DATA
 
 
 if __name__ == "__main__":
-    process_all_input_videos(input_dir="DATA/IP", output_dir="DATA/OP_V4", model_weights="yolo11m.pt", imgsz=1280)
+    process_all_input_videos(input_dir="DATA/IP", output_dir="DATA/OP_V4", model_weights="models/yolo11m.pt", imgsz=1280)

@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for loading and releasing models."""
     print("🚀 Initializing Road Safety Vision AI API models...")
     try:
-        MODEL_STATE["detector"] = RoadSafetyDetector(model_weights="yolo11m.pt", conf_threshold=0.20, imgsz=1280)
+        MODEL_STATE["detector"] = RoadSafetyDetector(model_weights="models/yolo11m.pt", conf_threshold=0.20, imgsz=1280)
         MODEL_STATE["depth_estimator"] = SightDistanceDepthEstimator(model_type="MiDaS_small")
         MODEL_STATE["predictor"] = RiskPredictor(model_dir="models")
         MODEL_STATE["status"] = "HEALTHY"
@@ -148,7 +148,7 @@ async def analyze_video(
         audit_report = run_road_safety_pipeline(
             video_path=input_video_path,
             output_dir="DATA/OP_V4",
-            model_weights="yolo11m.pt",
+            model_weights="models/yolo11m.pt",
             imgsz=imgsz
         )
         

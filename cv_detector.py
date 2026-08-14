@@ -17,16 +17,18 @@ class RoadSafetyDetector:
     COCO_ANIMAL_CLASSES = {15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow'}
     COCO_COMMERCIAL_CLASSES = {9: 'traffic light', 11: 'stop sign', 13: 'bench', 25: 'umbrella', 56: 'chair', 58: 'potted plant', 60: 'dining table'}
     
-    def __init__(self, model_weights: str = "yolo11m.pt", conf_threshold: float = 0.20, imgsz: int = 1280):
+    def __init__(self, model_weights: str = "models/yolo11m.pt", conf_threshold: float = 0.20, imgsz: int = 1280):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.imgsz = imgsz
         
-        # Check models/ directory first
-        local_weights = os.path.join("models", model_weights)
-        weights_to_load = local_weights if os.path.exists(local_weights) else model_weights
-        
-        print(f"Loading YOLO11 Medium Model [{weights_to_load}] @ imgsz={self.imgsz} on device: {self.device.upper()}")
-        self.model = YOLO(weights_to_load)
+        target_weights = model_weights
+        if not os.path.exists(target_weights):
+            alt_weights = os.path.join("models", os.path.basename(model_weights))
+            if os.path.exists(alt_weights):
+                target_weights = alt_weights
+                
+        print(f"Loading YOLO11 Medium Model [{target_weights}] @ imgsz={self.imgsz} on device: {self.device.upper()}")
+        self.model = YOLO(target_weights)
         self.conf_threshold = conf_threshold
 
     def detect_frame(self, frame: np.ndarray) -> dict:
