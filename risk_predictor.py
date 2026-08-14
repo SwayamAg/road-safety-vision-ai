@@ -28,16 +28,22 @@ class RiskPredictor:
         "Very High": {"color": "Red", "emoji": "🔴", "description": "Hazardous Blackspot - Emergency Safety Audit Required"}
     }
     
-    def __init__(self, model_dir: str = "../Ready dataset"):
-        model_path = os.path.join(model_dir, "best_road_safety_model.pkl")
-        classes_path = os.path.join(model_dir, "model_classes.pkl")
+    def __init__(self, model_dir: str = "models"):
+        # Check local models/ first, then fallback to ../Ready dataset
+        candidate_dirs = [model_dir, "models", "../Ready dataset", "Ready dataset"]
+        model_path = None
+        classes_path = None
         
-        if not os.path.exists(model_path) or not os.path.exists(classes_path):
-            # Fallback check for root relative path
-            model_path = os.path.abspath(model_path)
-            classes_path = os.path.abspath(classes_path)
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model file not found at: {model_path}")
+        for cd in candidate_dirs:
+            mp = os.path.join(cd, "best_road_safety_model.pkl")
+            cp = os.path.join(cd, "model_classes.pkl")
+            if os.path.exists(mp) and os.path.exists(cp):
+                model_path = mp
+                classes_path = cp
+                break
+                
+        if not model_path or not os.path.exists(model_path):
+            raise FileNotFoundError(f"XGBoost model files (best_road_safety_model.pkl) not found in candidate paths: {candidate_dirs}")
                 
         print(f"Loading trained XGBoost Classifier from: {model_path}")
         self.model = joblib.load(model_path)

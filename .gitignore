@@ -12,6 +12,7 @@ ENV/
 
 # Large Archives & Model Weights
 *.pkl
+!models/*.pkl
 *.joblib
 *.pth
 *.pt

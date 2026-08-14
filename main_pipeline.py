@@ -49,7 +49,7 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V4", mo
     # 2. Initialize Computer Vision Perception Engines (YOLO11 Medium + Depth Estimator)
     detector = RoadSafetyDetector(model_weights=model_weights, imgsz=imgsz)
     depth_estimator = SightDistanceDepthEstimator()
-    predictor = RiskPredictor(model_dir="../Ready dataset")
+    predictor = RiskPredictor(model_dir="models")
     
     print(f"\n[2/4] Processing Video Frames @ 5 FPS through YOLO11 Medium ({model_weights}) & Depth Perception...")
     

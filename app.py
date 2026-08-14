@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     try:
         MODEL_STATE["detector"] = RoadSafetyDetector(model_weights="yolo11m.pt", conf_threshold=0.20, imgsz=1280)
         MODEL_STATE["depth_estimator"] = SightDistanceDepthEstimator(model_type="MiDaS_small")
-        MODEL_STATE["predictor"] = RiskPredictor(model_dir="../Ready dataset")
+        MODEL_STATE["predictor"] = RiskPredictor(model_dir="models")
         MODEL_STATE["status"] = "HEALTHY"
         print("✅ All pre-trained models loaded successfully on CUDA GPU!")
     except Exception as e:
