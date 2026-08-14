@@ -63,7 +63,7 @@ The FastAPI service encapsulates the end-to-end perception and inference pipelin
 ---
 
 ### 2. Video Perception & Risk Analytics Endpoint: `POST /analyze_video`
-* **Description**: Accepts an uploaded road survey video (`.mp4`, `.avi`, `.mov`), runs YOLO11 Medium detection @ 1280p + MiDaS Depth estimation + XGBoost inference, and outputs complete audit reports.
+* **Description**: Accepts an uploaded road survey video (`.mp4`, `.avi`, `.mov`), runs YOLO11 Medium detection @ 1280p + MiDaS Depth estimation + XGBoost inference, and returns complete audit metrics alongside continuous Risk Score and download URLs.
 * **Form Parameters**:
   - `file`: Video File Binary (`Multipart/Form-Data`)
   - `sample_fps`: `float` (Default: `5.0` FPS)
@@ -91,6 +91,8 @@ The FastAPI service encapsulates the end-to-end perception and inference pipelin
     },
     "risk_prediction": {
       "predicted_risk_tier": "Very Low",
+      "risk_score": 1.14,
+      "risk_score_max": 10.0,
       "description": "Safe Corridor - Normal Operations",
       "probabilities": {
         "Very Low": 0.9702,

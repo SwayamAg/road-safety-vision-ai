@@ -115,6 +115,7 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V4", mo
             "junction_channelization_ord": calibrated_at_frame["Junction channelization_ord"],
             "animal_presence_ord": calibrated_at_frame["Presence of animals on road_ord"],
             "predicted_risk_tier": pred_at_frame["predicted_risk_tier"],
+            "frame_risk_score": pred_at_frame["risk_score"],
             "prob_very_low": pred_at_frame["probabilities"].get("Very Low", 0.0),
             "prob_low": pred_at_frame["probabilities"].get("Low", 0.0),
             "prob_high": pred_at_frame["probabilities"].get("High", 0.0),
@@ -188,6 +189,7 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V4", mo
     print("=" * 75)
     print(f"• Model Weights        : {model_weights} (YOLO11 Medium)")
     print(f"• Inference Resolution : {imgsz}x{imgsz}")
+    print(f"• Crash Index Score    : {final_result['risk_score']} / {final_result['risk_score_max']} (Continuous Risk Index)")
     print(f"• Sight Distance Range : {cum_metrics['avg_sight_distance_m']:.1f} meters")
     print(f"• Recommendation       : {final_result['description']}")
     print(f"• Video Saved          : {output_annotated_path}")

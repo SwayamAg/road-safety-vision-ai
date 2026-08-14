@@ -75,10 +75,18 @@ class RiskPredictor:
         probs = self.model.predict_proba(input_df)[0]
         prob_dict = {str(self.classes[i]): round(float(probs[i]), 4) for i in range(len(self.classes))}
         
+        # Calculate Continuous Crash Risk Index Score (0.00 - 10.00 scale)
+        # Class Weights: Very Low = 1.0, Low = 3.5, High = 7.0, Very High = 10.0
+        tier_weights = {"Very Low": 1.0, "Low": 3.5, "High": 7.0, "Very High": 10.0}
+        risk_score = sum(prob_dict.get(tier, 0.0) * weight for tier, weight in tier_weights.items())
+        risk_score = round(float(risk_score), 2)
+        
         tier_info = self.TIER_DEFINITIONS.get(risk_tier, {"color": "Gray", "emoji": "⚪", "description": "Unknown"})
         
         return {
             "predicted_risk_tier": risk_tier,
+            "risk_score": risk_score,
+            "risk_score_max": 10.0,
             "emoji": tier_info["emoji"],
             "color": tier_info["color"],
             "description": tier_info["description"],
@@ -104,8 +112,8 @@ if __name__ == "__main__":
         "animal_count": 3
     }
     calibrated_payload = FeatureCalibrator.calibrate_segment_metrics(test_metrics)
-    result = predictor.predict_risk(calibrated_payload)
-    
-    print(f"\nPrediction Result: {result['emoji']} [{result['predicted_risk_tier'].upper()}]")
-    print(f"Description: {result['description']}")
-    print("Class Confidence Probabilities:", result['probabilities'])
+    res = predictor.predict_risk(test_metrics)
+    print(f"\nPrediction Result: {res['emoji']} [{res['predicted_risk_tier'].upper()}]")
+    print(f"Crash Index Score: {res['risk_score']} / {res['risk_score_max']}")
+    print(f"Description: {res['description']}")
+    print(f"Class Confidence Probabilities: {res['probabilities']}")
