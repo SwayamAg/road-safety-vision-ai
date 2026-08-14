@@ -20,12 +20,12 @@ def format_timestamp(seconds: float) -> str:
     secs = seconds % 60
     return f"{mins:02d}:{secs:04.1f}"
 
-def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V3", imgsz: int = 1280):
+def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V4", model_weights: str = "yolo11m.pt", imgsz: int = 1280):
     """
     Master End-to-End Execution Pipeline for Phase 2 Road Safety Risk Analytics.
-    Processes video streams @ imgsz=1280 resolution using YOLOv11 + PyTorch MiDaS Depth,
+    Processes video streams @ imgsz=1280 resolution using YOLO11 Medium (yolo11m.pt) + PyTorch MiDaS Depth,
     exports frame-by-frame Excel/CSV, calibrates XGBoost inputs, predicts Risk Tier,
-    and outputs annotated MP4 video & JSON report in DATA/OP_V3/.
+    and outputs annotated MP4 video & JSON report in DATA/OP_V4/.
     """
     os.makedirs(output_dir, exist_ok=True)
     video_basename = os.path.splitext(os.path.basename(video_path))[0]
@@ -36,7 +36,7 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V3", im
     output_csv_path = os.path.join(output_dir, f"{video_basename}_frame_by_frame_detections.csv")
     
     print("=" * 75)
-    print(f"🛣️ Phase 2 Automated Road Safety Risk Analytics Pipeline [{video_basename}] @ {imgsz}x{imgsz}")
+    print(f"🛣️ Phase 2 Automated Road Safety Risk Analytics Pipeline [{video_basename}] @ {imgsz}p ({model_weights})")
     print("=" * 75)
     
     # 1. Initialize Video Reader
@@ -46,12 +46,12 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V3", im
     print(f"      • Resolution: {info['resolution'][0]}x{info['resolution'][1]}")
     print(f"      • Native FPS: {info['native_fps']} | Duration: {info['duration_sec']}s ({info['total_frames']} frames)")
     
-    # 2. Initialize Computer Vision Perception Engines (YOLOv11 @ imgsz=1280 + Depth Estimator)
-    detector = RoadSafetyDetector(model_weights="yolo11n.pt", imgsz=imgsz)
+    # 2. Initialize Computer Vision Perception Engines (YOLO11 Medium + Depth Estimator)
+    detector = RoadSafetyDetector(model_weights=model_weights, imgsz=imgsz)
     depth_estimator = SightDistanceDepthEstimator()
     predictor = RiskPredictor(model_dir="../Ready dataset")
     
-    print(f"\n[2/4] Processing Video Frames @ 5 FPS through High-Res YOLOv11 ({imgsz}p) & Depth Perception...")
+    print(f"\n[2/4] Processing Video Frames @ 5 FPS through YOLO11 Medium ({model_weights}) & Depth Perception...")
     
     cum_metrics = {
         "commercial_count": 0,
@@ -72,7 +72,7 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V3", im
     t_start = time.time()
     
     for frame_idx, timestamp, orig_frame, resized_frame in reader.extract_frames(sample_fps=5.0):
-        # Run YOLOv11 Object Detection at High Resolution (imgsz=1280)
+        # Run YOLO11 Medium Object Detection at High Resolution (imgsz=1280)
         dets = detector.detect_frame(resized_frame)
         
         # Estimate Metric Sight Distance via Monocular Depth Map
@@ -125,9 +125,9 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V3", im
         # Annotate HUD & write to output video
         annotated_frame = detector.annotate_frame(resized_frame, dets)
         
-        # Add Sight Distance HUD overlay
-        cv2.putText(annotated_frame, f"Sight Dist: {frame_sight_m:.1f}m", (20, 65), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        # Add Sight Distance HUD overlay to bottom
+        cv2.putText(annotated_frame, f"SIGHT DISTANCE: {frame_sight_m:.1f}m", (20, 625), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2, cv2.LINE_AA)
                     
         writer.write(annotated_frame)
         processed_frames += 1
@@ -155,7 +155,7 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V3", im
     audit_report = {
         "video_metadata": info,
         "pipeline_config": {
-            "model_weights": "yolo11n.pt",
+            "model_weights": model_weights,
             "inference_resolution": f"{imgsz}x{imgsz}",
             "depth_model": "MiDaS_small"
         },
@@ -186,7 +186,8 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V3", im
     print("\n" + "=" * 75)
     print(f"📊 FINAL RISK ASSESSMENT [{video_basename}]: {final_result['emoji']} [{final_result['predicted_risk_tier'].upper()} RISK]")
     print("=" * 75)
-    print(f"• Inference Resolution: {imgsz}x{imgsz}")
+    print(f"• Model Weights        : {model_weights} (YOLO11 Medium)")
+    print(f"• Inference Resolution : {imgsz}x{imgsz}")
     print(f"• Sight Distance Range : {cum_metrics['avg_sight_distance_m']:.1f} meters")
     print(f"• Recommendation       : {final_result['description']}")
     print(f"• Video Saved          : {output_annotated_path}")
@@ -200,10 +201,10 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V3", im
     return audit_report
 
 
-def process_all_input_videos(input_dir: str = "DATA/IP", output_dir: str = "DATA/OP_V3", imgsz: int = 1280):
+def process_all_input_videos(input_dir: str = "DATA/IP", output_dir: str = "DATA/OP_V4", model_weights: str = "yolo11m.pt", imgsz: int = 1280):
     """
     Sequentially processes all MP4 videos in DATA/IP/ (e.g. 1.mp4, 2.mp4)
-    at imgsz=1280 resolution and saves output videos, Excel/CSV timestamp logs, and JSON reports in DATA/OP_V3/.
+    using YOLO11 Medium @ imgsz=1280 and saves output videos, Excel/CSV timestamp logs, and JSON reports in DATA/OP_V4/.
     """
     video_files = [f for f in os.listdir(input_dir) if f.endswith('.mp4')]
     video_files.sort()
@@ -211,9 +212,9 @@ def process_all_input_videos(input_dir: str = "DATA/IP", output_dir: str = "DATA
     print(f"\n🚀 Found {len(video_files)} input videos in {input_dir}: {video_files}")
     for video in video_files:
         video_full_path = os.path.join(input_dir, video)
-        run_road_safety_pipeline(video_full_path, output_dir=output_dir, imgsz=imgsz)
+        run_road_safety_pipeline(video_full_path, output_dir=output_dir, model_weights=model_weights, imgsz=imgsz)
         print("\n")
 
 
 if __name__ == "__main__":
-    process_all_input_videos(input_dir="DATA/IP", output_dir="DATA/OP_V3", imgsz=1280)
+    process_all_input_videos(input_dir="DATA/IP", output_dir="DATA/OP_V4", model_weights="yolo11m.pt", imgsz=1280)
