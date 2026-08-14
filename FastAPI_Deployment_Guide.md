@@ -9,7 +9,7 @@ This document details the RESTful API endpoints, request/response schemas, deplo
 The FastAPI service encapsulates the end-to-end perception and inference pipeline:
 
 ```
-[ HTTP Client / Frontend ]
+[ HTTP Client / Frontend (React, Vue, Next.js, HTML/JS on ANY origin) ]
           │
           ├───► GET /models/status  ───► Returns GPU, CUDA, YOLO11, & XGBoost Health
           │
@@ -18,6 +18,9 @@ The FastAPI service encapsulates the end-to-end perception and inference pipelin
           │                                                                ▼
           └───◄ GET /download/{file} ◄── Returns MP4 Video, Excel Logs, & JSON Reports
 ```
+
+> [!NOTE]
+> **Universal CORS Enabled**: The API is configured with `CORSMiddleware` (`allow_origins=["*"]`, `allow_origin_regex=r"https?://.*"`), allowing cross-origin AJAX/fetch requests from **any website**, local dev server (`localhost:3000`, `127.0.0.1:5500`), or production cloud domain.
 
 ---
 
