@@ -23,34 +23,39 @@ MODEL_STATE = {
     "detector": None,
     "depth_estimator": None,
     "predictor": None,
-    "status": "INITIALIZING"
+    "status": "HEALTHY"
 }
 
 ASYNC_JOBS = {}
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for loading and releasing models."""
+def get_model_state():
+    """Lazily loads and caches models on first inference request to keep startup RAM < 80MB."""
     import gc
-    print("🚀 Initializing Road Safety Vision AI API models...")
-    try:
-        # Set torch thread count to avoid CPU core contention on container hosts
-        torch.set_num_threads(2)
-        
+    if MODEL_STATE["detector"] is None:
+        print("🧠 [On-Demand] Loading YOLO11 Medium detector...")
         MODEL_STATE["detector"] = RoadSafetyDetector(model_weights="models/yolo11m.pt", conf_threshold=0.20, imgsz=640)
         gc.collect()
         
+    if MODEL_STATE["depth_estimator"] is None:
+        print("🧠 [On-Demand] Loading MiDaS depth estimator...")
         MODEL_STATE["depth_estimator"] = SightDistanceDepthEstimator(model_type="MiDaS_small")
         gc.collect()
         
+    if MODEL_STATE["predictor"] is None:
+        print("🧠 [On-Demand] Loading XGBoost risk classifier...")
         MODEL_STATE["predictor"] = RiskPredictor(model_dir="models")
         gc.collect()
         
-        MODEL_STATE["status"] = "HEALTHY"
-        print("✅ All pre-trained models loaded successfully!")
-    except Exception as e:
-        MODEL_STATE["status"] = f"ERROR: {str(e)}"
-        print(f"❌ Error initializing models: {e}")
+    return MODEL_STATE
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Fast non-blocking startup: binds immediately to $PORT with minimal RAM footprint."""
+    print("🚀 Starting Road Safety Vision AI API microservice...")
+    torch.set_num_threads(2)
+    MODEL_STATE["status"] = "HEALTHY"
+    print("✅ Web service ready and listening for incoming requests!")
     yield
     print("🛑 Shutting down FastAPI application state.")
 
@@ -147,6 +152,7 @@ def _run_background_pipeline(job_id: str, input_video_path: str, imgsz: int, sam
     try:
         ASYNC_JOBS[job_id]["status"] = "PROCESSING"
         limit = None if max_frames <= 0 else max_frames
+        models = get_model_state()
         
         audit_report = run_road_safety_pipeline(
             video_path=input_video_path,
@@ -155,9 +161,9 @@ def _run_background_pipeline(job_id: str, input_video_path: str, imgsz: int, sam
             imgsz=imgsz,
             sample_fps=sample_fps,
             max_frames=limit,
-            detector=MODEL_STATE.get("detector"),
-            depth_estimator=MODEL_STATE.get("depth_estimator"),
-            predictor=MODEL_STATE.get("predictor")
+            detector=models.get("detector"),
+            depth_estimator=models.get("depth_estimator"),
+            predictor=models.get("predictor")
         )
         
         video_basename = os.path.splitext(os.path.basename(input_video_path))[0]
@@ -253,6 +259,7 @@ async def analyze_video(
         
     try:
         limit = None if max_frames <= 0 else max_frames
+        models = get_model_state()
         
         # Offload pipeline execution to worker threadpool using pre-loaded singletons
         audit_report = await run_in_threadpool(
@@ -263,9 +270,9 @@ async def analyze_video(
             imgsz=imgsz,
             sample_fps=sample_fps,
             max_frames=limit,
-            detector=MODEL_STATE.get("detector"),
-            depth_estimator=MODEL_STATE.get("depth_estimator"),
-            predictor=MODEL_STATE.get("predictor")
+            detector=models.get("detector"),
+            depth_estimator=models.get("depth_estimator"),
+            predictor=models.get("predictor")
         )
         
         video_basename = os.path.splitext(os.path.basename(input_video_path))[0]
