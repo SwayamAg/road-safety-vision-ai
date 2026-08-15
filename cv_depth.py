@@ -8,13 +8,23 @@ class SightDistanceDepthEstimator:
     Integrates Depth Anything V2 / MiDaS to calculate forward visual clearance distance 
     (in meters) along the driver horizon path to quantify Sight Distance Adequacy.
     """
-    def __init__(self, model_type: str = "MiDaS_small"):
+    def __init__(self, model_type: str = "MiDaS_small", weights_path: str = "models/midas_v21_small_256.pt"):
+        import os
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Loading Depth Estimation Model [{model_type}] on device: {self.device.type.upper()}")
         
         try:
-            # Load PyTorch Hub MiDaS monocular depth model
+            # Load PyTorch Hub MiDaS monocular depth architecture
             self.midas = torch.hub.load("intel-isl/MiDaS", model_type, trust_repo=True)
+            
+            # Load local pre-trained weights if available for offline Railway.app deployment
+            if os.path.exists(weights_path):
+                print(f"Loading local MiDaS weights from: {weights_path}")
+                state_dict = torch.load(weights_path, map_location=self.device)
+                if "state_dict" in state_dict:
+                    state_dict = state_dict["state_dict"]
+                self.midas.load_state_dict(state_dict, strict=False)
+                
             self.midas.to(self.device)
             self.midas.eval()
             
@@ -22,7 +32,7 @@ class SightDistanceDepthEstimator:
             self.transform = midas_transforms.small_transform if "small" in model_type else midas_transforms.dpt_transform
             self.is_loaded = True
         except Exception as e:
-            print(f"Warning: PyTorch Hub Depth loading deferred ({e}). Falling back to visual contrast depth estimator.")
+            print(f"Warning: Depth Estimation loading fallback ({e}). Using contrast depth fallback.")
             self.is_loaded = False
 
     def estimate_sight_distance(self, frame: np.ndarray) -> float:
