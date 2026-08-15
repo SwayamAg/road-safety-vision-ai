@@ -31,14 +31,21 @@ ASYNC_JOBS = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for loading and releasing models."""
+    import gc
     print("🚀 Initializing Road Safety Vision AI API models...")
     try:
         # Set torch thread count to avoid CPU core contention on container hosts
         torch.set_num_threads(2)
         
         MODEL_STATE["detector"] = RoadSafetyDetector(model_weights="models/yolo11m.pt", conf_threshold=0.20, imgsz=640)
+        gc.collect()
+        
         MODEL_STATE["depth_estimator"] = SightDistanceDepthEstimator(model_type="MiDaS_small")
+        gc.collect()
+        
         MODEL_STATE["predictor"] = RiskPredictor(model_dir="models")
+        gc.collect()
+        
         MODEL_STATE["status"] = "HEALTHY"
         print("✅ All pre-trained models loaded successfully!")
     except Exception as e:
