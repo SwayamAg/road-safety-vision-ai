@@ -60,6 +60,12 @@ app.add_middleware(
 )
 
 
+@app.get("/health", tags=["General"])
+async def health():
+    """Simple Cloud Health Check Endpoint."""
+    return {"status": "healthy", "service": "Road Safety Vision-AI Analytics API"}
+
+
 @app.get("/", tags=["General"])
 async def root():
     """API Root Welcome Endpoint."""
@@ -68,6 +74,7 @@ async def root():
         "status": MODEL_STATE["status"],
         "docs": "/docs",
         "endpoints": {
+            "health": "/health",
             "model_status": "/models/status",
             "analyze_video": "/analyze_video",
             "download_output": "/download/{file_name}"
