@@ -132,13 +132,16 @@ async def check_models_status():
 @app.post("/analyze_video", tags=["Inference Pipeline"])
 async def analyze_video(
     file: UploadFile = File(..., description="MP4, AVI, or MOV video stream of road survey"),
-    sample_fps: float = Query(5.0, description="Keyframe extraction rate (default: 5.0 FPS)"),
-    imgsz: int = Query(1280, description="YOLO11 tensor input resolution (default: 1280)")
+    sample_fps: float = Query(2.0, description="Keyframe extraction rate (default: 2.0 FPS for cloud responsiveness)"),
+    imgsz: int = Query(640, description="Inference resolution (default: 640 for cloud CPU; 1280 for GPU)"),
+    max_frames: int = Query(60, description="Max keyframes to process (prevents HTTP 502 proxy timeouts on cloud CPUs; 0 for unlimited)")
 ):
     """
     Endpoint 2: Uploads a road survey video, executes Vision AI + XGBoost analytics,
     and returns full audit metrics, Risk Tier prediction, annotated video URL, and Excel log URL.
     """
+    from starlette.concurrency import run_in_threadpool
+
     if not file.filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
         raise HTTPException(status_code=400, detail="Invalid file format. Please upload an MP4, AVI, MOV, or MKV video.")
         
@@ -153,12 +156,17 @@ async def analyze_video(
         shutil.copyfileobj(file.file, buffer)
         
     try:
-        # Run End-to-End Execution Pipeline
-        audit_report = run_road_safety_pipeline(
+        limit = None if max_frames <= 0 else max_frames
+        
+        # Offload heavy pipeline execution to background worker threadpool to prevent blocking FastAPI event loop
+        audit_report = await run_in_threadpool(
+            run_road_safety_pipeline,
             video_path=input_video_path,
             output_dir="DATA/OP_V4",
             model_weights="models/yolo11m.pt",
-            imgsz=imgsz
+            imgsz=imgsz,
+            sample_fps=sample_fps,
+            max_frames=limit
         )
         
         # Build Download Base URLs

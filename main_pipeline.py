@@ -20,7 +20,14 @@ def format_timestamp(seconds: float) -> str:
     secs = seconds % 60
     return f"{mins:02d}:{secs:04.1f}"
 
-def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V4", model_weights: str = "models/yolo11m.pt", imgsz: int = 1280):
+def run_road_safety_pipeline(
+    video_path: str, 
+    output_dir: str = "DATA/OP_V4", 
+    model_weights: str = "models/yolo11m.pt", 
+    imgsz: int = 1280,
+    sample_fps: float = 5.0,
+    max_frames: int = None
+):
     """
     Master End-to-End Execution Pipeline for Phase 2 Road Safety Risk Analytics.
     Processes video streams @ imgsz=1280 resolution using YOLO11 Medium (yolo11m.pt) + PyTorch MiDaS Depth,
@@ -51,7 +58,7 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V4", mo
     depth_estimator = SightDistanceDepthEstimator()
     predictor = RiskPredictor(model_dir="models")
     
-    print(f"\n[2/4] Processing Video Frames @ 5 FPS through YOLO11 Medium ({model_weights}) & Depth Perception...")
+    print(f"\n[2/4] Processing Video Frames @ {sample_fps} FPS through YOLO11 Medium ({model_weights}) & Depth Perception...")
     
     cum_metrics = {
         "commercial_count": 0,
@@ -66,12 +73,16 @@ def run_road_safety_pipeline(video_path: str, output_dir: str = "DATA/OP_V4", mo
     
     # Set up VideoWriter for annotated output video
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    writer = cv2.VideoWriter(output_annotated_path, fourcc, 5.0, (640, 640))
+    writer = cv2.VideoWriter(output_annotated_path, fourcc, sample_fps, (640, 640))
     
     processed_frames = 0
     t_start = time.time()
     
-    for frame_idx, timestamp, orig_frame, resized_frame in reader.extract_frames(sample_fps=5.0):
+    for frame_idx, timestamp, orig_frame, resized_frame in reader.extract_frames(sample_fps=sample_fps):
+        if max_frames is not None and processed_frames >= max_frames:
+            print(f"      • Reached max_frames limit ({max_frames}). Finalizing segment analytics...")
+            break
+            
         # Run YOLO11 Medium Object Detection at High Resolution (imgsz=1280)
         dets = detector.detect_frame(resized_frame)
         

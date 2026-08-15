@@ -14,6 +14,12 @@ class SightDistanceDepthEstimator:
         print(f"Loading Depth Estimation Model [{model_type}] on device: {self.device.type.upper()}")
         
         try:
+            # Automatically trust Intel-ISL & Ross Wightman repos to prevent container EOF prompt
+            if hasattr(torch.hub, "_TRUSTED_REPO_OWNERS"):
+                owners = set(torch.hub._TRUSTED_REPO_OWNERS)
+                owners.update(["intel-isl", "rwightman", "facebookresearch"])
+                torch.hub._TRUSTED_REPO_OWNERS = tuple(owners)
+                
             # Load PyTorch Hub MiDaS monocular depth architecture
             self.midas = torch.hub.load("intel-isl/MiDaS", model_type, trust_repo=True)
             
