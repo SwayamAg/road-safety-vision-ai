@@ -26,7 +26,7 @@ class SightDistanceDepthEstimator:
             # Load local pre-trained weights if available for offline Railway.app deployment
             if os.path.exists(weights_path):
                 print(f"Loading local MiDaS weights from: {weights_path}")
-                state_dict = torch.load(weights_path, map_location=self.device)
+                state_dict = torch.load(weights_path, map_location=str(self.device))
                 if "state_dict" in state_dict:
                     state_dict = state_dict["state_dict"]
                 self.midas.load_state_dict(state_dict, strict=False)

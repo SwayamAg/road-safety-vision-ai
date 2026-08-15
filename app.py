@@ -158,7 +158,7 @@ async def analyze_video(
     try:
         limit = None if max_frames <= 0 else max_frames
         
-        # Offload heavy pipeline execution to background worker threadpool to prevent blocking FastAPI event loop
+        # Offload heavy pipeline execution to background worker threadpool using pre-loaded singletons
         audit_report = await run_in_threadpool(
             run_road_safety_pipeline,
             video_path=input_video_path,
@@ -166,7 +166,10 @@ async def analyze_video(
             model_weights="models/yolo11m.pt",
             imgsz=imgsz,
             sample_fps=sample_fps,
-            max_frames=limit
+            max_frames=limit,
+            detector=MODEL_STATE.get("detector"),
+            depth_estimator=MODEL_STATE.get("depth_estimator"),
+            predictor=MODEL_STATE.get("predictor")
         )
         
         # Build Download Base URLs

@@ -26,7 +26,10 @@ def run_road_safety_pipeline(
     model_weights: str = "models/yolo11m.pt", 
     imgsz: int = 1280,
     sample_fps: float = 5.0,
-    max_frames: int = None
+    max_frames: int = None,
+    detector: RoadSafetyDetector = None,
+    depth_estimator: SightDistanceDepthEstimator = None,
+    predictor: RiskPredictor = None
 ):
     """
     Master End-to-End Execution Pipeline for Phase 2 Road Safety Risk Analytics.
@@ -53,10 +56,13 @@ def run_road_safety_pipeline(
     print(f"      • Resolution: {info['resolution'][0]}x{info['resolution'][1]}")
     print(f"      • Native FPS: {info['native_fps']} | Duration: {info['duration_sec']}s ({info['total_frames']} frames)")
     
-    # 2. Initialize Computer Vision Perception Engines (YOLO11 Medium + Depth Estimator)
-    detector = RoadSafetyDetector(model_weights=model_weights, imgsz=imgsz)
-    depth_estimator = SightDistanceDepthEstimator()
-    predictor = RiskPredictor(model_dir="models")
+    # 2. Re-use pre-loaded models (prevents RAM duplication and container OOM kills)
+    if detector is None:
+        detector = RoadSafetyDetector(model_weights=model_weights, imgsz=imgsz)
+    if depth_estimator is None:
+        depth_estimator = SightDistanceDepthEstimator()
+    if predictor is None:
+        predictor = RiskPredictor(model_dir="models")
     
     print(f"\n[2/4] Processing Video Frames @ {sample_fps} FPS through YOLO11 Medium ({model_weights}) & Depth Perception...")
     
