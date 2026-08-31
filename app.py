@@ -33,7 +33,7 @@ def get_model_state():
     import gc
     if MODEL_STATE["detector"] is None:
         print("🧠 [On-Demand] Loading YOLO11 Medium detector...")
-        MODEL_STATE["detector"] = RoadSafetyDetector(model_weights="models/yolo11m.pt", conf_threshold=0.20, imgsz=640)
+        MODEL_STATE["detector"] = RoadSafetyDetector(model_weights="models/yolo11m.pt", conf_threshold=0.20, imgsz=None)
         gc.collect()
         
     if MODEL_STATE["depth_estimator"] is None:
@@ -169,7 +169,6 @@ def _run_background_pipeline(job_id: str, input_video_path: str, imgsz: int, sam
         video_basename = os.path.splitext(os.path.basename(input_video_path))[0]
         download_urls = {
             "annotated_video": f"/download/{video_basename}_annotated.mp4",
-            "excel_log": f"/download/{video_basename}_frame_by_frame_detections.xlsx",
             "csv_log": f"/download/{video_basename}_frame_by_frame_detections.csv",
             "json_report": f"/download/{video_basename}_risk_report.json"
         }
@@ -278,7 +277,6 @@ async def analyze_video(
         video_basename = os.path.splitext(os.path.basename(input_video_path))[0]
         download_urls = {
             "annotated_video": f"/download/{video_basename}_annotated.mp4",
-            "excel_log": f"/download/{video_basename}_frame_by_frame_detections.xlsx",
             "csv_log": f"/download/{video_basename}_frame_by_frame_detections.csv",
             "json_report": f"/download/{video_basename}_risk_report.json"
         }

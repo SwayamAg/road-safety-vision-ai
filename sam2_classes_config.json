@@ -1,0 +1,828 @@
+{
+  "config_version": "1.0.0",
+  "pipeline": {
+    "detector": "YOLO11",
+    "segmenter": "SAM2",
+    "grounding_mode": "Grounded-SAM",
+    "input_use_case": [
+      "dashcam_video",
+      "drone_survey_video"
+    ],
+    "target_safety_standard": "CSIR-CRRI physical road safety parameters",
+    "coordinate_convention": "image_pixel_coordinates_origin_top_left",
+    "mask_storage": "binary_uint8",
+    "default_instance_tracking": true
+  },
+  "global_sam2_parameters": {
+    "enabled": true,
+    "keyframe_interval": 5,
+    "propagate_masks_between_keyframes": true,
+    "mask_alpha_opacity": 0.42,
+    "contour_thickness": 2,
+    "contour_antialias": true,
+    "min_mask_area_pixels_global": 64,
+    "max_mask_area_ratio_global": 0.65,
+    "mask_iou_dedup_threshold": 0.78,
+    "box_iou_dedup_threshold": 0.75,
+    "temporal_consistency_iou_threshold": 0.55,
+    "min_temporal_persistence_frames": 2,
+    "max_temporal_gap_frames": 2,
+    "polygon_simplification_epsilon_px": 1.5,
+    "enable_mask_morphology_cleanup": true,
+    "morphology_open_kernel_px": 3,
+    "morphology_close_kernel_px": 5,
+    "road_roi_required": true,
+    "road_roi_bottom_fraction": 0.72,
+    "central_corridor_fraction": 0.36,
+    "sight_distance_analysis_enabled": true,
+    "pairwise_conflict_analysis_enabled": true,
+    "lateral_maneuver_analysis_enabled": true,
+    "ordinal_scoring": {
+      "allowed_scores": [0, 1, 2, 3, 5],
+      "parameter_2_allowed_scores": [0, 2, 3, 5],
+      "parameter_3_allowed_scores": [0, 2, 5],
+      "parameter_4_allowed_scores": [0, 2, 5],
+      "parameter_5_allowed_scores": [0, 2, 5],
+      "parameter_6_allowed_scores": [0, 1, 2],
+      "parameter_7_allowed_scores": [0, 1, 2],
+      "parameter_8_allowed_scores": [0, 1, 2],
+      "parameter_9_allowed_scores": [0, 1, 2],
+      "parameter_10_allowed_scores": [0, 1, 5]
+    }
+  },
+  "classes": [
+    {
+      "class_id": 1,
+      "name": "person",
+      "category": "pedestrian",
+      "description": "A person walking, standing, waiting, crossing, or moving alongside or within the road corridor; retain individual instances even when partially occluded.",
+      "detection_prompt": "pedestrian person walking or standing near a road, visible human body",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 80,
+      "color_bgr": [255, 80, 80],
+      "associated_safety_param": "Pedestrian-vehicle conflicts_ord",
+      "feature_mapping_rule": {
+        "metric_type": "proximity_conflict",
+        "hazard_weight": 4.5,
+        "ordinal_impact": "Track each person relative to the carriageway, shoulder and nearby vehicles. Escalate the conflict parameter from 0 toward 2 or 5 when repeated close approaches or near-miss trajectories are observed; persons inside live lanes also support jaywalking frequency scoring."
+      }
+    },
+    {
+      "class_id": 2,
+      "name": "motorcycle",
+      "category": "vehicle",
+      "description": "Two-wheeled motor vehicle, including scooter/motorbike forms, traveling, stopped, filtering, weaving, or cutting across traffic lanes.",
+      "detection_prompt": "motorcycle or scooter on a roadway",
+      "conf_threshold": 0.28,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 90,
+      "color_bgr": [255, 160, 40],
+      "associated_safety_param": "Unsafe merging diverging maneuvers observed_ord",
+      "feature_mapping_rule": {
+        "metric_type": "proximity_conflict",
+        "hazard_weight": 4.0,
+        "ordinal_impact": "Track lateral displacement and lane-crossing motion between frames. A sustained lateral cut-in into another road user's path increments unsafe maneuver events; none=0, 1-2 events=2, more than 2 repeated events=5."
+      }
+    },
+    {
+      "class_id": 3,
+      "name": "bicycle",
+      "category": "vehicle",
+      "description": "Human-powered bicycle, including riders and cargo bicycles, using the shoulder, edge, or active lane.",
+      "detection_prompt": "bicycle or cycle on a roadway",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 75,
+      "color_bgr": [220, 220, 40],
+      "associated_safety_param": "Unsafe merging diverging maneuvers observed_ord",
+      "feature_mapping_rule": {
+        "metric_type": "proximity_conflict",
+        "hazard_weight": 3.5,
+        "ordinal_impact": "Measure lateral crossings and abrupt movements relative to lane geometry and other traffic. Repeated bicycle cut-ins/divergences contribute to the unsafe maneuver count using the 0, 2, 5 thresholds."
+      }
+    },
+    {
+      "class_id": 4,
+      "name": "car",
+      "category": "vehicle",
+      "description": "Passenger car or small SUV/MPV using the carriageway, shoulder, entrance, or junction area.",
+      "detection_prompt": "passenger car or SUV on road",
+      "conf_threshold": 0.25,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 120,
+      "color_bgr": [40, 200, 255],
+      "associated_safety_param": "Unsafe merging diverging maneuvers observed_ord",
+      "feature_mapping_rule": {
+        "metric_type": "proximity_conflict",
+        "hazard_weight": 4.0,
+        "ordinal_impact": "Use tracked vehicle masks/centroids to detect lateral cut-ins, merges and abrupt divergences across lane boundaries. Count distinct unsafe events and map 0, 1-2, or >2 events to ordinal 0, 2, or 5."
+      }
+    },
+    {
+      "class_id": 5,
+      "name": "bus",
+      "category": "vehicle",
+      "description": "Full-size bus, minibus, school bus, or transit bus occupying a road lane, curbside stop, or junction approach.",
+      "detection_prompt": "bus or public transport bus on roadway",
+      "conf_threshold": 0.28,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 180,
+      "color_bgr": [40, 255, 200],
+      "associated_safety_param": "Unsafe merging diverging maneuvers observed_ord",
+      "feature_mapping_rule": {
+        "metric_type": "proximity_conflict",
+        "hazard_weight": 3.5,
+        "ordinal_impact": "Track bus lateral motion and interactions with adjacent lanes. Abrupt lane changes or blocking merges that create close conflicts contribute to the unsafe merging/diverging event count."
+      }
+    },
+    {
+      "class_id": 6,
+      "name": "truck",
+      "category": "vehicle",
+      "description": "Medium or heavy goods vehicle, lorry, rigid truck, or tractor-trailer on the roadway or roadside.",
+      "detection_prompt": "truck or heavy goods vehicle on road",
+      "conf_threshold": 0.25,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 160,
+      "color_bgr": [60, 120, 255],
+      "associated_safety_param": "Unsafe merging diverging maneuvers observed_ord",
+      "feature_mapping_rule": {
+        "metric_type": "proximity_conflict",
+        "hazard_weight": 4.0,
+        "ordinal_impact": "Use tracked masks and lane-relative displacement to identify heavy-vehicle cut-ins, merges and divergences; each distinct unsafe event contributes to the 0/2/5 ordinal scale."
+      }
+    },
+    {
+      "class_id": 7,
+      "name": "auto-rickshaw",
+      "category": "vehicle",
+      "description": "Three-wheeled motorized passenger vehicle, including autorickshaw/tuk-tuk, operating in mixed traffic or near junctions.",
+      "detection_prompt": "auto rickshaw three wheeler on roadway",
+      "conf_threshold": 0.28,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 100,
+      "color_bgr": [180, 80, 255],
+      "associated_safety_param": "Unsafe merging diverging maneuvers observed_ord",
+      "feature_mapping_rule": {
+        "metric_type": "proximity_conflict",
+        "hazard_weight": 4.0,
+        "ordinal_impact": "Track lateral motion, queue insertion and abrupt crossing into adjacent paths. Repeated unsafe cut-ins/divergences are converted to 0, 2, or 5 according to event count."
+      }
+    },
+    {
+      "class_id": 8,
+      "name": "cow",
+      "category": "animal",
+      "description": "Cow or cattle animal standing, walking, grazing, resting, or being herded on the shoulder, median, or live carriageway.",
+      "detection_prompt": "cow or cattle animal on road",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 140,
+      "color_bgr": [80, 180, 255],
+      "associated_safety_param": "Presence of animals on road_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 5.0,
+        "ordinal_impact": "Count distinct animals whose masks intersect the live carriageway. None=0, exactly one rare occurrence=1, more than one distinct stray/herded animal=5; ignore animals fully outside the road danger zone."
+      }
+    },
+    {
+      "class_id": 9,
+      "name": "dog",
+      "category": "animal",
+      "description": "Domestic or stray dog present on the roadway, shoulder, median edge, or junction conflict area.",
+      "detection_prompt": "dog or stray dog near or on roadway",
+      "conf_threshold": 0.32,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 55,
+      "color_bgr": [80, 255, 255],
+      "associated_safety_param": "Presence of animals on road_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 4.0,
+        "ordinal_impact": "Count distinct dogs inside the live road corridor. One observed animal maps to rare=1; repeated/multiple animals (>1 distinct animals in the assessed segment) maps to frequent=5."
+      }
+    },
+    {
+      "class_id": 10,
+      "name": "horse",
+      "category": "animal",
+      "description": "Horse, pony, or similar equine animal using the shoulder, carriageway, or junction area, including mounted or unmounted cases.",
+      "detection_prompt": "horse or pony on road",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 110,
+      "color_bgr": [100, 140, 220],
+      "associated_safety_param": "Presence of animals on road_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 5.0,
+        "ordinal_impact": "Count equines whose masks enter the live carriageway. None=0, one rare animal=1, more than one distinct animal=5."
+      }
+    },
+    {
+      "class_id": 11,
+      "name": "sheep",
+      "category": "animal",
+      "description": "Sheep or similar small livestock on or adjacent to the roadway, including groups being herded across the carriageway.",
+      "detection_prompt": "sheep livestock near or on road",
+      "conf_threshold": 0.32,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 60,
+      "color_bgr": [255, 180, 180],
+      "associated_safety_param": "Presence of animals on road_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 4.5,
+        "ordinal_impact": "Count individual animals where separable, otherwise group instances conservatively. One animal=1; more than one stray/herded animal=5; none=0."
+      }
+    },
+    {
+      "class_id": 12,
+      "name": "goat",
+      "category": "animal",
+      "description": "Goat or similar small livestock wandering, grazing, or crossing on the roadway or shoulder.",
+      "detection_prompt": "goat livestock near or on road",
+      "conf_threshold": 0.32,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 55,
+      "color_bgr": [200, 150, 100],
+      "associated_safety_param": "Presence of animals on road_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 4.5,
+        "ordinal_impact": "Count goats within the live carriageway. One=1, more than one distinct animal=5, none=0."
+      }
+    },
+    {
+      "class_id": 13,
+      "name": "umbrella",
+      "category": "commercial",
+      "description": "Commercial parasol, market umbrella, canopy umbrella, or sunshade associated with a roadside selling point.",
+      "detection_prompt": "roadside market umbrella or vendor parasol",
+      "conf_threshold": 0.35,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 100,
+      "color_bgr": [255, 0, 170],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 3.0,
+        "ordinal_impact": "Count distinct active commercial umbrellas within the roadside activity zone. Combine with other commercial-object detections to estimate activity density: none=0, 1-2=2, 3-5=3, >5=5."
+      }
+    },
+    {
+      "class_id": 14,
+      "name": "roadside_cart",
+      "category": "commercial",
+      "description": "Pushcart, handcart, street-food cart, produce cart, or similar movable roadside vending fixture encroaching near the road edge.",
+      "detection_prompt": "roadside vendor cart or pushcart",
+      "conf_threshold": 0.34,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 90,
+      "color_bgr": [255, 100, 0],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 3.5,
+        "ordinal_impact": "Count distinct roadside carts in the defined frontage window. Aggregate with kiosks, stalls, tents and commercial encroachments to score activity density on 0/2/3/5."
+      }
+    },
+    {
+      "class_id": 15,
+      "name": "temporary_tent",
+      "category": "commercial",
+      "description": "Temporary roadside tent, fabric canopy, pop-up shelter, or stall roof used for commercial activity.",
+      "detection_prompt": "temporary roadside market tent or fabric canopy",
+      "conf_threshold": 0.34,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 140,
+      "color_bgr": [255, 0, 255],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 3.0,
+        "ordinal_impact": "Each distinct commercial tent contributes one activity unit after de-duplication with vendor_stall. Activity totals map to none=0, 1-2=2, 3-5=3, >5=5."
+      }
+    },
+    {
+      "class_id": 16,
+      "name": "vendor_stall",
+      "category": "commercial",
+      "description": "Fixed or semi-permanent roadside booth or street-vending stall with goods, counter, display structure, or customer-facing setup.",
+      "detection_prompt": "roadside vendor stall street market shop booth",
+      "conf_threshold": 0.34,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 120,
+      "color_bgr": [200, 0, 255],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 4.0,
+        "ordinal_impact": "Count distinct commercial stalls per predefined road-frontage segment and de-duplicate overlapping stall components. Totals directly contribute to 0/2/3/5 commercial activity density."
+      }
+    },
+    {
+      "class_id": 17,
+      "name": "chair",
+      "category": "commercial",
+      "description": "Roadside seating chair associated with a stall, tea shop, vendor area, or other commercial shoulder activity.",
+      "detection_prompt": "chair placed roadside outside shop or vendor area",
+      "conf_threshold": 0.38,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 45,
+      "color_bgr": [130, 70, 255],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 2.0,
+        "ordinal_impact": "Treat clustered roadside chairs as supporting evidence of a commercial activity node rather than one activity per chair; aggregate nearby objects to avoid overcounting a single stall."
+      }
+    },
+    {
+      "class_id": 18,
+      "name": "table",
+      "category": "commercial",
+      "description": "Roadside table, display table, food table, or merchandise surface associated with a commercial encroachment.",
+      "detection_prompt": "roadside vendor table or display table",
+      "conf_threshold": 0.38,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 45,
+      "color_bgr": [90, 120, 255],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 2.0,
+        "ordinal_impact": "Use as a support feature for a commercial node; cluster with chairs/benches/stalls before counting. Do not count multiple tables at one stall as separate activities."
+      }
+    },
+    {
+      "class_id": 19,
+      "name": "bench",
+      "category": "commercial",
+      "description": "Roadside bench or long seat associated with a shop, market, waiting area, or commercial shoulder occupation.",
+      "detection_prompt": "roadside bench outside shop or market",
+      "conf_threshold": 0.38,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 55,
+      "color_bgr": [100, 60, 220],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 2.0,
+        "ordinal_impact": "Cluster benches with adjacent commercial objects to infer one activity location; contributes to density only after spatial de-duplication."
+      }
+    },
+    {
+      "class_id": 20,
+      "name": "potted_plant",
+      "category": "commercial",
+      "description": "Decorative or merchandise potted plant placed along a roadside shop frontage, cafe, stall, or shoulder encroachment.",
+      "detection_prompt": "potted plant arranged outside roadside shop",
+      "conf_threshold": 0.40,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 40,
+      "color_bgr": [60, 220, 120],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 1.5,
+        "ordinal_impact": "Treat grouped potted plants as supporting evidence of a commercial frontage, not independent shops; use cluster-level counting for the 0/2/3/5 density scale."
+      }
+    },
+    {
+      "class_id": 21,
+      "name": "advertising_board",
+      "category": "commercial",
+      "description": "Freestanding roadside advertisement, promotional board, shop signboard, banner frame, or commercial display facing road users.",
+      "detection_prompt": "roadside commercial advertising board or shop sign",
+      "conf_threshold": 0.32,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 70,
+      "color_bgr": [0, 140, 255],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 2.5,
+        "ordinal_impact": "Count distinct commercial sign/display locations after clustering multiple boards belonging to one business. Aggregate with stalls and carts to derive frontage activity density."
+      }
+    },
+    {
+      "class_id": 22,
+      "name": "parked_truck",
+      "category": "commercial",
+      "description": "Commercial truck or heavy vehicle parked/stationary on the shoulder, service lane, frontage, or road edge, often obstructing usable width.",
+      "detection_prompt": "parked commercial truck on roadside shoulder",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 180,
+      "color_bgr": [0, 180, 220],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 3.5,
+        "ordinal_impact": "Count distinct commercial parked vehicles that form a roadside commercial/loading activity node. Use object tracking to prevent double counting across frames; aggregate with other commercial activities."
+      }
+    },
+    {
+      "class_id": 23,
+      "name": "unloading_van",
+      "category": "commercial",
+      "description": "Van or light commercial vehicle stopped adjacent to shops/vendors for loading or unloading, often with goods activity at the road edge.",
+      "detection_prompt": "delivery van unloading goods roadside",
+      "conf_threshold": 0.33,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 120,
+      "color_bgr": [20, 200, 180],
+      "associated_safety_param": "Roadside commercial activity density_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 3.0,
+        "ordinal_impact": "Count distinct loading/unloading activity nodes per frontage window. Combine with stalls and parked commercial vehicles; map aggregate counts to 0/2/3/5."
+      }
+    },
+    {
+      "class_id": 24,
+      "name": "crosswalk_stripes",
+      "category": "lane_marking",
+      "description": "Visible zebra-crossing stripes composed of repeated transverse painted bars across the pedestrian crossing area.",
+      "detection_prompt": "zebra crossing white transverse stripes painted on asphalt",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 90,
+      "color_bgr": [255, 255, 255],
+      "associated_safety_param": "Visibility of pedestrian crossings_ord",
+      "feature_mapping_rule": {
+        "metric_type": "contrast_ratio",
+        "hazard_weight": 4.5,
+        "ordinal_impact": "Measure segmented stripe area, local luminance/reflectance contrast against adjacent asphalt, stripe continuity, and visible width. Strong continuous contrast=0; materially faded/poor contrast=1; no detectable crossing=2."
+      }
+    },
+    {
+      "class_id": 25,
+      "name": "faded_crosswalk",
+      "category": "lane_marking",
+      "description": "Residual zebra-crossing paint with broken, faint, worn, low-contrast, or partially erased stripes still indicating a former pedestrian crossing.",
+      "detection_prompt": "faded worn zebra crossing stripes on asphalt poor paint contrast",
+      "conf_threshold": 0.28,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 75,
+      "color_bgr": [160, 160, 160],
+      "associated_safety_param": "Visibility of pedestrian crossings_ord",
+      "feature_mapping_rule": {
+        "metric_type": "contrast_ratio",
+        "hazard_weight": 5.0,
+        "ordinal_impact": "A confident faded-crosswalk mask with low local contrast or discontinuity maps to score 1. If a crossing is not visually recoverable despite contextual evidence, score 2."
+      }
+    },
+    {
+      "class_id": 26,
+      "name": "solid_white_line",
+      "category": "lane_marking",
+      "description": "Continuous white longitudinal pavement marking used to separate lanes, define road edges, or guide traffic along the carriageway.",
+      "detection_prompt": "solid white road lane marking line on asphalt",
+      "conf_threshold": 0.28,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 70,
+      "color_bgr": [245, 245, 245],
+      "associated_safety_param": "Lane marking condition_ord",
+      "feature_mapping_rule": {
+        "metric_type": "polygon_area_ratio",
+        "hazard_weight": 4.0,
+        "ordinal_impact": "Assess visible marking continuity, mask fragmentation and paint-to-asphalt contrast. Clear continuous line=0; materially faded/broken line=1; absent across expected geometry=2."
+      }
+    },
+    {
+      "class_id": 27,
+      "name": "dashed_yellow_line",
+      "category": "lane_marking",
+      "description": "Yellow longitudinal road marking rendered as repeated dashed segments separating opposing or special traffic streams.",
+      "detection_prompt": "yellow dashed lane divider road marking on asphalt",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 60,
+      "color_bgr": [0, 220, 255],
+      "associated_safety_param": "Lane marking condition_ord",
+      "feature_mapping_rule": {
+        "metric_type": "polygon_area_ratio",
+        "hazard_weight": 4.0,
+        "ordinal_impact": "Compare observed painted segment continuity, width and contrast against expected dashed geometry. Clear/consistent=0; faded or broken beyond normal dash gaps=1; absent where lane geometry indicates a required marking=2."
+      }
+    },
+    {
+      "class_id": 28,
+      "name": "edge_line",
+      "category": "lane_marking",
+      "description": "Longitudinal pavement edge line defining the usable carriageway boundary, typically white and near the road shoulder.",
+      "detection_prompt": "white road edge line along asphalt shoulder",
+      "conf_threshold": 0.28,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 65,
+      "color_bgr": [220, 250, 250],
+      "associated_safety_param": "Lane marking condition_ord",
+      "feature_mapping_rule": {
+        "metric_type": "polygon_area_ratio",
+        "hazard_weight": 3.5,
+        "ordinal_impact": "Measure longitudinal continuity, visible width and contrast. Clear continuous edge line=0; fragmented/faded=1; missing through an otherwise marked segment=2."
+      }
+    },
+    {
+      "class_id": 29,
+      "name": "faded_lane_marking",
+      "category": "lane_marking",
+      "description": "Residual longitudinal lane marking with low paint contrast, fragmentation, worn edges, or interrupted visibility inconsistent with a clear road marking.",
+      "detection_prompt": "faded broken road lane marking paint on asphalt",
+      "conf_threshold": 0.27,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 55,
+      "color_bgr": [130, 130, 130],
+      "associated_safety_param": "Lane marking condition_ord",
+      "feature_mapping_rule": {
+        "metric_type": "contrast_ratio",
+        "hazard_weight": 5.0,
+        "ordinal_impact": "A confident faded marking mask with low local contrast or poor continuity supports score 1. If expected marking geometry has no detectable paint at all, score 2; otherwise clear marking=0."
+      }
+    },
+    {
+      "class_id": 30,
+      "name": "pothole",
+      "category": "road_surface",
+      "description": "Localized depression or cavity in the paved surface with broken edges, dark void, exposed aggregate, or water-filled irregular shape.",
+      "detection_prompt": "pothole depression or cavity in asphalt road",
+      "conf_threshold": 0.27,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 100,
+      "color_bgr": [80, 80, 80],
+      "associated_safety_param": "Road surface condition_ord",
+      "feature_mapping_rule": {
+        "metric_type": "polygon_area_ratio",
+        "hazard_weight": 5.0,
+        "ordinal_impact": "Compute pothole mask area relative to road ROI, together with count, depth proxy, severity and spatial clustering. Minor isolated defects support 1; extensive/severe or clustered potholes contributing to breakup support 2; smooth/no meaningful defect=0."
+      }
+    },
+    {
+      "class_id": 31,
+      "name": "alligator_cracking",
+      "category": "road_surface",
+      "description": "Interconnected fatigue cracking forming polygonal, crocodile-skin patterns across asphalt pavement, often indicating structural distress.",
+      "detection_prompt": "alligator fatigue cracking network on asphalt road surface",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 120,
+      "color_bgr": [100, 70, 70],
+      "associated_safety_param": "Road surface condition_ord",
+      "feature_mapping_rule": {
+        "metric_type": "polygon_area_ratio",
+        "hazard_weight": 4.5,
+        "ordinal_impact": "Calculate cracked-pavement mask area ratio and fragmentation density. Small/localized cracking contributes to 1; broad interconnected fatigue damage contributes to 2; no significant cracking=0."
+      }
+    },
+    {
+      "class_id": 32,
+      "name": "rutting",
+      "category": "road_surface",
+      "description": "Longitudinal depression or wheel-path deformation visible as paired or repeated troughs along vehicle trajectories.",
+      "detection_prompt": "road rutting wheel track depressions in asphalt",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 110,
+      "color_bgr": [120, 90, 60],
+      "associated_safety_param": "Road surface condition_ord",
+      "feature_mapping_rule": {
+        "metric_type": "polygon_area_ratio",
+        "hazard_weight": 4.5,
+        "ordinal_impact": "Estimate rut extent, persistence along the road and lane coverage. Minor/localized rutting supports 1; deep/widespread wheel-path deformation supports 2; smooth surface without material rutting=0."
+      }
+    },
+    {
+      "class_id": 33,
+      "name": "unpaved_patch",
+      "category": "road_surface",
+      "description": "Area of gravel, soil, aggregate, exposed sub-base, or temporary unpaved treatment interrupting the paved road surface.",
+      "detection_prompt": "unpaved gravel dirt patch interrupting paved roadway",
+      "conf_threshold": 0.29,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 140,
+      "color_bgr": [80, 180, 120],
+      "associated_safety_param": "Road surface condition_ord",
+      "feature_mapping_rule": {
+        "metric_type": "polygon_area_ratio",
+        "hazard_weight": 4.0,
+        "ordinal_impact": "Measure unpaved surface area ratio within the usable carriageway. Small localized patching supports 1; extensive pavement breakup/unpaved coverage supports 2; intact pavement=0."
+      }
+    },
+    {
+      "class_id": 34,
+      "name": "median_barrier",
+      "category": "infrastructure",
+      "description": "Continuous physical median barrier such as concrete, metal crash barrier, modular divider, or substantial central separator controlling opposing flows.",
+      "detection_prompt": "road median barrier separating opposing traffic",
+      "conf_threshold": 0.28,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 150,
+      "color_bgr": [255, 130, 80],
+      "associated_safety_param": "Junction channelization_ord",
+      "feature_mapping_rule": {
+        "metric_type": "polygon_area_ratio",
+        "hazard_weight": 4.0,
+        "ordinal_impact": "At junctions, continuous physical separation with adequate alignment and openings supports proper channelization=0. Broken/inconsistent barriers or poorly controlled islands support 1; no meaningful channelization support=2."
+      }
+    },
+    {
+      "class_id": 35,
+      "name": "traffic_island",
+      "category": "infrastructure",
+      "description": "Raised or painted traffic island, splitter island, refuge island, triangular nose, or directional island used to guide traffic at junctions.",
+      "detection_prompt": "traffic splitter island or pedestrian refuge island at road junction",
+      "conf_threshold": 0.28,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 130,
+      "color_bgr": [255, 200, 80],
+      "associated_safety_param": "Junction channelization_ord",
+      "feature_mapping_rule": {
+        "metric_type": "polygon_area_ratio",
+        "hazard_weight": 4.5,
+        "ordinal_impact": "Presence of clearly defined, correctly aligned islands at relevant junction approaches supports score 0. Poorly defined/damaged/uncontrolled islands support 1. Absence where channelization is required supports 2."
+      }
+    },
+    {
+      "class_id": 36,
+      "name": "bollard",
+      "category": "infrastructure",
+      "description": "Vertical bollard, flexible delineator, traffic post, or short protective post defining a channelized edge, median nose, refuge, or pedestrian interface.",
+      "detection_prompt": "road traffic bollard delineator post at junction or island",
+      "conf_threshold": 0.31,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 45,
+      "color_bgr": [255, 100, 100],
+      "associated_safety_param": "Junction channelization_ord",
+      "feature_mapping_rule": {
+        "metric_type": "count",
+        "hazard_weight": 3.0,
+        "ordinal_impact": "A coherent series of bollards/delineators reinforcing an island supports proper channelization=0. Missing, sparse or damaged delineation supports 1; no channelization devices where expected supports 2."
+      }
+    },
+    {
+      "class_id": 37,
+      "name": "raised_curb",
+      "category": "infrastructure",
+      "description": "Raised concrete/stone curb defining a median, island, edge, pedestrian refuge, or controlled junction boundary.",
+      "detection_prompt": "raised road curb defining traffic island or median",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 90,
+      "color_bgr": [220, 220, 120],
+      "associated_safety_param": "Junction channelization_ord",
+      "feature_mapping_rule": {
+        "metric_type": "polygon_area_ratio",
+        "hazard_weight": 3.5,
+        "ordinal_impact": "Continuous raised curb geometry supports score 0 when it forms a clear island/median. Broken or poorly controlled curb geometry supports 1; absent channelization features supports 2."
+      }
+    },
+    {
+      "class_id": 38,
+      "name": "view_obstruction",
+      "category": "infrastructure",
+      "description": "Any persistent foreground or roadside object mass that materially blocks the forward sight corridor, including large parked vehicles, structures, dense clutter, or construction objects.",
+      "detection_prompt": "roadside object blocking forward driver line of sight",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 100,
+      "color_bgr": [0, 0, 255],
+      "associated_safety_param": "Is sight distance adequate for safe driving?_ord",
+      "feature_mapping_rule": {
+        "metric_type": "longitudinal_clearance",
+        "hazard_weight": 5.0,
+        "ordinal_impact": "Project obstruction masks into the central driving corridor and estimate visible road distance to the obstruction/occlusion breakpoint. >100 m clear visibility=0; 50-100 m=1; <50 m=2."
+      }
+    },
+    {
+      "class_id": 39,
+      "name": "overgrown_vegetation",
+      "category": "infrastructure",
+      "description": "Dense grass, shrubs, tree growth, hedges, vines, or vegetation extending into or across the sight corridor, shoulder, sign line, or road edge.",
+      "detection_prompt": "overgrown roadside vegetation blocking road visibility",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 100,
+      "color_bgr": [40, 180, 40],
+      "associated_safety_param": "Is sight distance adequate for safe driving?_ord",
+      "feature_mapping_rule": {
+        "metric_type": "longitudinal_clearance",
+        "hazard_weight": 4.5,
+        "ordinal_impact": "Measure vegetation intrusion into the central forward corridor and its longitudinal endpoint. Derive sight distance from the first material occlusion: >100 m=0, 50-100 m=1, <50 m=2."
+      }
+    },
+    {
+      "class_id": 40,
+      "name": "blind_curve_barrier",
+      "category": "infrastructure",
+      "description": "Road geometry or physical edge condition causing a blind curve, including opaque barriers, walls, cut slopes, or curve-side structures that mask approaching traffic.",
+      "detection_prompt": "blind curve barrier blocking visibility around road bend",
+      "conf_threshold": 0.30,
+      "sam2_enabled": true,
+      "sam2_min_area_pixels": 120,
+      "color_bgr": [40, 40, 200],
+      "associated_safety_param": "Is sight distance adequate for safe driving?_ord",
+      "feature_mapping_rule": {
+        "metric_type": "longitudinal_clearance",
+        "hazard_weight": 5.0,
+        "ordinal_impact": "Combine barrier mask with road curvature/vanishing-point geometry to estimate the first hidden conflict point. >100 m visible=0, 50-100 m=1, <50 m=2."
+      }
+    }
+  ],
+  "parameter_level_aggregation": {
+    "Is sight distance adequate for safe driving?_ord": {
+      "score_scale": {
+        "0": ">100m",
+        "1": "50–100m",
+        "2": "<50m"
+      },
+      "evidence_classes": [38, 39, 40],
+      "aggregation_rule": "Estimate the minimum reliable forward sight distance from obstruction/curve masks inside the central driving corridor, using temporal persistence and road-plane geometry. Use the conservative minimum over the survey segment unless a configurable robust percentile is specified."
+    },
+    "Roadside commercial activity density_ord": {
+      "score_scale": {
+        "0": "None",
+        "2": "Low 1-2",
+        "3": "Medium 3-5",
+        "5": "High >5"
+      },
+      "evidence_classes": [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+      "aggregation_rule": "Cluster all commercial detections by roadside activity node and frontage window before counting; multiple supporting objects belonging to one stall/business count as one activity node."
+    },
+    "Pedestrian-vehicle conflicts_ord": {
+      "score_scale": {
+        "0": "None",
+        "2": "Few 1-3",
+        "5": "Frequent >3 near-misses"
+      },
+      "evidence_classes": [1, 2, 3, 4, 5, 6, 7],
+      "aggregation_rule": "Associate pedestrian tracks with vehicle tracks using mask-to-mask distance, time-to-collision proxy, crossing trajectories, and lane occupancy. Count distinct near-miss events, not frames."
+    },
+    "Frequency of jaywalking pedestrians_ord": {
+      "score_scale": {
+        "0": "None",
+        "2": "Occasional 1-3",
+        "5": "Frequent >3 on live lanes"
+      },
+      "evidence_classes": [1],
+      "aggregation_rule": "Classify pedestrians whose lower-body/contact-point or projected footpoint lies within an active carriageway polygon and whose trajectory is not a legally marked crossing movement. Count distinct events/tracks rather than frames."
+    },
+    "Unsafe merging diverging maneuvers observed_ord": {
+      "score_scale": {
+        "0": "None",
+        "2": "Few 1-2",
+        "5": "Frequent >2 lateral cut-ins"
+      },
+      "evidence_classes": [2, 3, 4, 5, 6, 7],
+      "aggregation_rule": "Use tracked vehicle centroids/masks, lane boundaries, and temporal lateral displacement to identify discrete cut-ins, abrupt merges or divergences that intrude into another traffic path."
+    },
+    "Visibility of pedestrian crossings_ord": {
+      "score_scale": {
+        "0": "Good contrast/visible",
+        "1": "Faded/poor",
+        "2": "Absent"
+      },
+      "evidence_classes": [24, 25],
+      "aggregation_rule": "Measure crossing stripe area, stripe continuity, local paint-to-road luminance contrast, geometric regularity and visibility under current illumination."
+    },
+    "Road surface condition_ord": {
+      "score_scale": {
+        "0": "Smooth",
+        "1": "Minor cracks/rutting",
+        "2": "Severe potholes/breakup"
+      },
+      "evidence_classes": [30, 31, 32, 33],
+      "aggregation_rule": "Fuse defect mask area ratio, defect count, spatial clustering and severity proxies over the drivable road ROI."
+    },
+    "Lane marking condition_ord": {
+      "score_scale": {
+        "0": "Clear continuous/dashed",
+        "1": "Faded/broken",
+        "2": "Absent"
+      },
+      "evidence_classes": [26, 27, 28, 29],
+      "aggregation_rule": "Measure marking continuity, paint contrast, visible width and expected-vs-observed line geometry, separately by marking type and then aggregate conservatively."
+    },
+    "Junction channelization_ord": {
+      "score_scale": {
+        "0": "Proper medians/islands/bollards",
+        "1": "Poor/uncontrolled",
+        "2": "Absent"
+      },
+      "evidence_classes": [34, 35, 36, 37],
+      "aggregation_rule": "Detect junction-zone channelization objects, assess geometric continuity/alignment and whether they meaningfully constrain or guide traffic."
+    },
+    "Presence of animals on road_ord": {
+      "score_scale": {
+        "0": "None",
+        "1": "Rare 1",
+        "5": "Frequent >1 stray/herded animals"
+      },
+      "evidence_classes": [8, 9, 10, 11, 12],
+      "aggregation_rule": "Count distinct animal tracks whose masks intersect the live carriageway danger polygon; de-duplicate temporally tracked individuals."
+    }
+  }
+}

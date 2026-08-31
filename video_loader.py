@@ -32,10 +32,11 @@ class VideoFrameReader:
             "duration_sec": round(self.duration_sec, 2)
         }
 
-    def extract_frames(self, sample_fps: float = 5.0, target_size: tuple = (640, 640)):
+    def extract_frames(self, sample_fps: float = 5.0, target_size: tuple = None):
         """
-        Generator that samples frames at a specified FPS rate and resizes for model inference.
-        Yields: (frame_index, timestamp_sec, original_frame, resized_frame)
+        Generator that samples frames at a specified FPS rate.
+        If target_size is None, keeps original input resolution without downgrading.
+        Yields: (frame_index, timestamp_sec, original_frame, proc_frame)
         """
         frame_interval = max(1, int(round(self.native_fps / sample_fps)))
         frame_idx = 0
@@ -49,8 +50,8 @@ class VideoFrameReader:
                 
             if frame_idx % frame_interval == 0:
                 timestamp = frame_idx / self.native_fps
-                resized_frame = cv2.resize(frame, target_size, interpolation=cv2.INTER_LINEAR)
-                yield frame_idx, timestamp, frame, resized_frame
+                proc_frame = frame if target_size is None else cv2.resize(frame, target_size, interpolation=cv2.INTER_LINEAR)
+                yield frame_idx, timestamp, frame, proc_frame
                 
             frame_idx += 1
             
