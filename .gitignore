@@ -17,6 +17,7 @@ ENV/
 *.pth
 *.pt
 !models/*.pt
+models/sam2*.pt
 *.onnx
 *.engine
 

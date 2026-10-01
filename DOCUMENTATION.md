@@ -187,9 +187,11 @@ The pipeline is packaged as a high-performance, asynchronous REST service ([`app
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/health` | Cloud liveness check endpoint. |
-| `GET` | `/models/status` | Real-time health, CUDA GPU status, and model metadata for all pre-trained engines. |
-| `POST` | `/analyze_video` | Ingests uploaded MP4 video, executes Vision AI + XGBoost analytics, and returns download URLs. |
-| `POST` | `/analyze_video_async`| Non-blocking asynchronous task execution for long video files (returns `job_id`). |
+| `GET` | `/models/status` | Real-time health, CUDA GPU status, and model metadata for all pre-trained engines (`?preload=true` available). |
+| `POST`| `/models/preload` | Warmed-up one-click loading of all neural backbones (YOLO11, MiDaS, SAM 2, XGBoost) directly onto GPU. |
+| `POST`| `/analyze_video_segment_cap` | **NEW Milestone Endpoint**: Calculates 3D vehicle distance traveled and predicts/locks risk scores at every **500m** (or custom user distance cap, default: 5 FPS, 500m). |
+| `POST`| `/analyze_video` | Ingests uploaded MP4 video, executes Vision AI + XGBoost analytics, and returns download URLs. |
+| `POST`| `/analyze_video_async`| Non-blocking asynchronous task execution for long video files (returns `job_id`). |
 | `GET` | `/jobs/{job_id}` | Polls status and retrieves final reports for asynchronous jobs. |
 | `GET` | `/download/{file_name}`| Streams generated annotated videos (`.mp4`), CSV logs (`.csv`), or JSON reports. |
 
@@ -227,3 +229,4 @@ To push perception precision to maximum research-grade accuracy in future iterat
 - [x] **Milestone 4**: Configurable class schema via `sam2_classes_config.json` supporting custom thresholds, colors, and safety parameter mappings.
 - [x] **Milestone 5**: Production FastAPI REST microservice with synchronous & asynchronous execution endpoints.
 - [x] **Milestone 6**: Clean CSV-only telemetry logs (`*_frame_by_frame_detections.csv`), MP4 annotated videos, and JSON risk reports.
+- [x] **Milestone 7**: Option 1 Metric 3D Keypoint Visual Odometry (`cv_distance_odometry.py`), dynamic traffic masking, and real-time 500m distance-capped risk score video HUD predictions.

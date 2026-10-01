@@ -5,8 +5,9 @@ import numpy as np
 class SightDistanceDepthEstimator:
     """
     Monocular Metric Depth Estimation Engine for Phase 2 Road Safety Perception.
-    Integrates Depth Anything V2 / MiDaS to calculate forward visual clearance distance 
-    (in meters) along the driver horizon path to quantify Sight Distance Adequacy.
+    Integrates MiDaS / Metric Depth transforms to:
+      1. Calculate forward visual clearance distance (meters) along driver horizon path.
+      2. Generate dense 2D metric depth maps (meters) for 3D Keypoint Ego-Odometry (500m distance tracking).
     """
     def __init__(self, model_type: str = "MiDaS_small", weights_path: str = "models/midas_v21_small_256.pt"):
         import os
@@ -26,7 +27,7 @@ class SightDistanceDepthEstimator:
             # Load local pre-trained weights if available for offline Railway.app deployment
             if os.path.exists(weights_path):
                 print(f"Loading local MiDaS weights from: {weights_path}")
-                state_dict = torch.load(weights_path, map_location=str(self.device))
+                state_dict = torch.load(weights_path, map_location=str(self.device), weights_only=False)
                 if "state_dict" in state_dict:
                     state_dict = state_dict["state_dict"]
                 self.midas.load_state_dict(state_dict, strict=False)
@@ -41,13 +42,15 @@ class SightDistanceDepthEstimator:
             print(f"Warning: Depth Estimation loading fallback ({e}). Using contrast depth fallback.")
             self.is_loaded = False
 
-    def estimate_sight_distance(self, frame: np.ndarray) -> float:
+    def compute_depth_map(self, frame: np.ndarray) -> tuple[np.ndarray, float]:
         """
-        Estimates forward sight distance clearance (in meters) along the central driving corridor.
-        Returns: Estimated sight distance float value in meters (e.g. 120.5m, 65.0m, 35.0m).
+        Infers dense metric depth map (in meters) and calculates forward sight distance.
+        
+        Returns:
+            metric_depth_map: 2D numpy array (H, W) float32 with depth values in meters.
+            sight_distance_m: Forward line-of-sight clearance in meters.
         """
         h, w, _ = frame.shape
-        # Define central driving corridor ROI (center 40% of image width, middle-to-horizon height)
         roi_x1, roi_x2 = int(w * 0.3), int(w * 0.7)
         roi_y1, roi_y2 = int(h * 0.25), int(h * 0.75)
         
@@ -65,37 +68,52 @@ class SightDistanceDepthEstimator:
                         align_corners=False
                     ).squeeze()
                     
-                depth_map = prediction.cpu().numpy()
+                raw_disp = prediction.cpu().numpy().astype(np.float32)
+                raw_disp = np.maximum(raw_disp, 1e-4)
                 
-                # Extract central driving corridor depth values
-                corridor_depth = depth_map[roi_y1:roi_y2, roi_x1:roi_x2]
+                # Corridor relative clearance calculation
+                corridor_disp = raw_disp[roi_y1:roi_y2, roi_x1:roi_x2]
+                min_val = np.percentile(corridor_disp, 5)
+                max_val = np.percentile(corridor_disp, 95)
+                disp_range = max(1e-5, max_val - min_val)
+                relative_clearance = (np.median(corridor_disp) - min_val) / disp_range
+                sight_distance_m = float(np.clip(20.0 + (130.0 * (1.0 - relative_clearance)), 15.0, 180.0))
                 
-                # Normalize relative depth to metric meter estimation
-                min_val, max_val = np.percentile(corridor_depth, 5), np.percentile(corridor_depth, 95)
-                depth_range = max(1e-5, max_val - min_val)
-                relative_clearance = (np.median(corridor_depth) - min_val) / depth_range
+                # Calibrate inverse disparity to metric depth (meters)
+                # Bottom road near field (disparity max) -> ~3-5m, Corridor horizon -> sight_distance_m
+                disp_p98 = np.percentile(raw_disp, 98)
+                disp_norm = raw_disp / max(disp_p98, 1e-4)
+                # Metric depth curve: Z = scale / (disp_norm + eps)
+                metric_depth = np.clip(3.5 / (disp_norm + 0.035), 1.0, 150.0).astype(np.float32)
                 
-                # Metric calibration curve: Map normalized clearance to meters (20m to 150m range)
-                estimated_meters = float(np.clip(20.0 + (130.0 * (1.0 - relative_clearance)), 15.0, 180.0))
-                return round(estimated_meters, 1)
+                return metric_depth, round(sight_distance_m, 1)
             except Exception as err:
                 print(f"Depth inference error: {err}")
                 
-        # Heuristic fallback based on visual horizon contrast & brightness variance
+        # Heuristic fallback
         corridor_bgr = frame[roi_y1:roi_y2, roi_x1:roi_x2]
         gray = cv2.cvtColor(corridor_bgr, cv2.COLOR_BGR2GRAY)
-        std_dev = np.std(gray)
+        std_dev = float(np.std(gray))
+        sight_distance_m = float(np.clip(40.0 + (std_dev * 1.8), 25.0, 140.0))
         
-        # Clear road corridor exhibits high spatial variance/clearance
-        heuristic_meters = float(np.clip(40.0 + (std_dev * 1.8), 25.0, 140.0))
-        return round(heuristic_meters, 1)
+        # Approximate depth gradient from bottom to horizon
+        y_indices = np.linspace(3.0, sight_distance_m, h, dtype=np.float32)[:, None]
+        fallback_depth = np.repeat(y_indices, w, axis=1)
+        return fallback_depth, round(sight_distance_m, 1)
+
+    def estimate_sight_distance(self, frame: np.ndarray) -> float:
+        """
+        Legacy wrapper returning forward sight distance clearance (meters).
+        """
+        _, sight_dist = self.compute_depth_map(frame)
+        return sight_dist
 
 
 if __name__ == "__main__":
     from video_loader import VideoFrameReader
     import os
     
-    print("Testing SightDistanceDepthEstimator...")
+    print("Testing SightDistanceDepthEstimator with Metric Depth...")
     test_video = "DATA/IP/1.mp4"
     if not os.path.exists(test_video):
         VideoFrameReader.generate_synthetic_test_video(test_video)
@@ -104,7 +122,7 @@ if __name__ == "__main__":
     estimator = SightDistanceDepthEstimator()
     
     for frame_idx, t_sec, orig, resized in reader.extract_frames(sample_fps=1.0):
-        dist_m = estimator.estimate_sight_distance(resized)
-        print(f"[Timestamp {t_sec:.1f}s] Estimated Sight Distance: {dist_m} meters")
-        if frame_idx >= 30:
+        depth_map, dist_m = estimator.compute_depth_map(resized)
+        print(f"[Timestamp {t_sec:.1f}s] Sight Dist: {dist_m}m | Depth Map Mean: {depth_map.mean():.1f}m (min={depth_map.min():.1f}m, max={depth_map.max():.1f}m)")
+        if frame_idx >= 5:
             break

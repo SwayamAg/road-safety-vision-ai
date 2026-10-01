@@ -65,9 +65,11 @@ Traditional road safety audits rely heavily on manual field surveys, physical qu
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/health` | Cloud liveness check endpoint. |
-| `GET` | `/models/status` | **Endpoint 1**: Returns real-time health, CUDA GPU status, and model metadata for all pre-trained engines. |
-| `POST` | `/analyze_video` | **Endpoint 2**: Ingests uploaded MP4 video, executes Vision AI + XGBoost analytics, and returns audit metrics + download links. |
-| `POST` | `/analyze_video_async` | Non-blocking asynchronous task execution for long video files (returns `job_id`). |
+| `GET` | `/models/status` | Returns real-time health, CUDA GPU status, and model metadata (`?preload=true` available). |
+| `POST`| `/models/preload` | One-click instant warmup of all models onto GPU memory. |
+| `POST`| `/analyze_video_segment_cap` | **Segment-Capped Endpoint**: Ingests video, estimates 3D metric traveled distance, and predicts/locks risk scores every **500m** (or custom user cap). |
+| `POST`| `/analyze_video` | Direct synchronous video audit endpoint returning immediate metrics + download links. |
+| `POST`| `/analyze_video_async` | Non-blocking asynchronous task execution for long video files (returns `job_id`). |
 | `GET` | `/jobs/{job_id}` | Polls status and retrieves final reports for asynchronous jobs. |
 | `GET` | `/download/{file_name}` | Downloads generated annotated videos (`.mp4`), CSV logs (`.csv`), or JSON reports. |
 
