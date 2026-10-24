@@ -79,12 +79,26 @@ class SightDistanceDepthEstimator:
                 relative_clearance = (np.median(corridor_disp) - min_val) / disp_range
                 sight_distance_m = float(np.clip(20.0 + (130.0 * (1.0 - relative_clearance)), 15.0, 180.0))
                 
-                # Calibrate inverse disparity to metric depth (meters)
-                # Bottom road near field (disparity max) -> ~3-5m, Corridor horizon -> sight_distance_m
-                disp_p98 = np.percentile(raw_disp, 98)
-                disp_norm = raw_disp / max(disp_p98, 1e-4)
-                # Metric depth curve: Z = scale / (disp_norm + eps)
-                metric_depth = np.clip(3.5 / (disp_norm + 0.035), 1.0, 150.0).astype(np.float32)
+                # Calibrate inverse disparity to metric depth (meters) using physical ground plane projection
+                # Road corridor: y from 52% to 68% height, center 40% width
+                h_cam = 1.35  # standard automotive dashcam height (meters)
+                fov_rad = np.radians(65.0)
+                fy = float((w / 2.0) / np.tan(fov_rad / 2.0))
+                v_horiz = float(0.46 * h)
+                
+                v_rows = np.linspace(int(h * 0.52), int(h * 0.68), 12).astype(int)
+                inv_z_ground = [(v - v_horiz) / (h_cam * fy) for v in v_rows]
+                corridor_disp = [float(np.median(raw_disp[v, int(w * 0.35):int(w * 0.65)])) for v in v_rows]
+                
+                try:
+                    a, b = np.polyfit(corridor_disp, inv_z_ground, 1)
+                    if a < 1e-6 or np.isnan(a) or np.isnan(b):
+                        a, b = 0.0035, -0.18
+                except Exception:
+                    a, b = 0.0035, -0.18
+                    
+                inv_z_map = np.maximum(1.0 / 150.0, a * raw_disp + b)
+                metric_depth = np.clip(1.0 / inv_z_map, 1.0, 150.0).astype(np.float32)
                 
                 return metric_depth, round(sight_distance_m, 1)
             except Exception as err:

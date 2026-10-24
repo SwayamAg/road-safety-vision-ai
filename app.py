@@ -207,7 +207,9 @@ def _run_background_pipeline(
     imgsz: Optional[int], 
     sample_fps: float, 
     max_frames: int,
-    segment_cap_m: float
+    segment_cap_m: float,
+    camera_height_m: float = 1.35,
+    camera_fov_deg: float = 65.0
 ):
     """Background worker task for processing long videos asynchronously."""
     try:
@@ -215,7 +217,11 @@ def _run_background_pipeline(
         limit = None if max_frames <= 0 else max_frames
         models = get_model_state()
         
-        odometry_tracker = VehicleEgoOdometryTracker(target_segment_length_m=segment_cap_m)
+        odometry_tracker = VehicleEgoOdometryTracker(
+            camera_fov_deg=camera_fov_deg,
+            camera_height_m=camera_height_m,
+            target_segment_length_m=segment_cap_m
+        )
         
         audit_report = run_road_safety_pipeline(
             video_path=input_video_path,
@@ -226,6 +232,8 @@ def _run_background_pipeline(
             sample_fps=sample_fps,
             max_frames=limit,
             segment_cap_m=segment_cap_m,
+            camera_height_m=camera_height_m,
+            camera_fov_deg=camera_fov_deg,
             detector=models.get("detector"),
             depth_estimator=models.get("depth_estimator"),
             sam_segmenter=models.get("sam_segmenter"),

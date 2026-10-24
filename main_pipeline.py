@@ -32,6 +32,8 @@ def run_road_safety_pipeline(
     max_frames: int = None,
     segment_cap_m: float = 500.0,
     target_segment_length_m: float = None,
+    camera_height_m: float = 1.35,
+    camera_fov_deg: float = 65.0,
     detector: RoadSafetyDetector = None,
     depth_estimator: SightDistanceDepthEstimator = None,
     sam_segmenter: RoadSafetySAMSegmenter = None,
@@ -58,6 +60,7 @@ def run_road_safety_pipeline(
     print('=' * 75)
     print(f'Option B Road Safety Vision-AI Pipeline [{video_basename}] @ Native Resolution ({res_str})')
     print(f'   • YOLO11m ({model_weights}) | Metric Odometry ({segment_cap_m:.0f}m Cap) | SAM 2 ({sam_weights})')
+    print(f'   • Camera Geometry: H={camera_height_m:.2f}m | FOV={camera_fov_deg:.1f}°')
     print('=' * 75)
     
     print('\n[1/4] Ingesting Video: ' + str(info['source_path']))
@@ -72,7 +75,11 @@ def run_road_safety_pipeline(
     if sam_segmenter is None:
         sam_segmenter = RoadSafetySAMSegmenter(model_weights=sam_weights)
     if odometry_tracker is None:
-        odometry_tracker = VehicleEgoOdometryTracker(target_segment_length_m=segment_cap_m)
+        odometry_tracker = VehicleEgoOdometryTracker(
+            camera_fov_deg=camera_fov_deg,
+            camera_height_m=camera_height_m,
+            target_segment_length_m=segment_cap_m
+        )
     if predictor is None:
         predictor = RiskPredictor(model_dir='models')
     
@@ -384,4 +391,27 @@ def process_target_videos(videos=['sample.mp4', '1.mp4'], input_dir='DATA/IP', o
             print('Warning: Video ' + str(v_path) + ' not found.')
 
 if __name__ == '__main__':
-    process_target_videos()
+    import argparse
+    parser = argparse.ArgumentParser(description="Road Safety AI Pipeline with Distance Odometry & Segment Capping")
+    parser.add_argument('--video', type=str, default=None, help='Path to target input video')
+    parser.add_argument('--output_dir', type=str, default='DATA/OP', help='Directory to save outputs')
+    parser.add_argument('--cap', type=float, default=500.0, help='Segment cap length in meters (default: 500m)')
+    parser.add_argument('--fps', type=float, default=5.0, help='Sampling FPS (default: 5.0)')
+    parser.add_argument('--height', type=float, default=1.35, help='Camera mounting height above road in meters (default: 1.35m)')
+    parser.add_argument('--fov', type=float, default=65.0, help='Camera horizontal FOV in degrees (default: 65.0)')
+    parser.add_argument('--max_frames', type=int, default=None, help='Maximum frames to process (default: None for full video)')
+    args = parser.parse_args()
+    
+    if args.video:
+        run_road_safety_pipeline(
+            video_path=args.video,
+            output_dir=args.output_dir,
+            segment_cap_m=args.cap,
+            sample_fps=args.fps,
+            max_frames=args.max_frames,
+            camera_height_m=args.height,
+            camera_fov_deg=args.fov
+        )
+    else:
+        process_target_videos(segment_cap_m=args.cap)
+

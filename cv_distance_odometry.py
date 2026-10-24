@@ -17,11 +17,15 @@ class VehicleEgoOdometryTracker:
     def __init__(
         self,
         camera_fov_deg: float = 65.0,
+        camera_height_m: float = 1.35,
+        horizon_y_ratio: float = 0.46,
         target_segment_length_m: float = 500.0,
         max_speed_kmh: float = 160.0,
         min_tracked_points: int = 12
     ):
-        self.fov_deg = camera_fov_deg
+        self.fov_deg = float(camera_fov_deg)
+        self.camera_height_m = float(camera_height_m)
+        self.horizon_y_ratio = float(horizon_y_ratio)
         self.target_segment_length_m = float(target_segment_length_m)
         self.max_speed_kmh = float(max_speed_kmh)
         self.min_tracked_points = int(min_tracked_points)
@@ -46,17 +50,20 @@ class VehicleEgoOdometryTracker:
         self.cy: float = 0.0
         self.K: Optional[np.ndarray] = None
         
+        # Tracking state
+        self.last_valid_delta_m: float = 0.0
+        
         # Feature detection params (Shi-Tomasi)
         self.feature_params = dict(
-            maxCorners=250,
-            qualityLevel=0.015,
-            minDistance=12,
+            maxCorners=800,
+            qualityLevel=0.01,
+            minDistance=10,
             blockSize=7
         )
-        # Lucas-Kanade optical flow params
+        # Lucas-Kanade optical flow params (multi-scale pyramid)
         self.lk_params = dict(
-            winSize=(21, 21),
-            maxLevel=3,
+            winSize=(31, 31),
+            maxLevel=4,
             criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
         )
 
@@ -76,17 +83,23 @@ class VehicleEgoOdometryTracker:
 
     def build_static_mask(self, frame_shape: Tuple[int, int], dynamic_boxes: List[Dict]) -> np.ndarray:
         """
-        Creates a binary mask where dynamic moving objects (vehicles, pedestrians, animals)
-        and sky/hood zones are masked out (0), leaving only static background (1).
+        Creates a binary mask where dynamic moving objects, vehicle interior/hood,
+        windshield reflections, and sky are masked out (0), leaving only static external background (255).
         """
         h, w = frame_shape[:2]
         mask = np.ones((h, w), dtype=np.uint8) * 255
         
-        # Mask out upper sky (top 15%) and extreme car hood (bottom 4%)
+        # 1. Mask upper sky (top 15%) to avoid moving clouds / sun glare
         mask[0:int(h * 0.15), :] = 0
-        mask[int(h * 0.96):, :] = 0
         
-        # Dynamic categories to exclude
+        # 2. Mask vehicle interior dashboard, defroster vents, hood, and ornament (bottom 32%)
+        mask[int(h * 0.68):, :] = 0
+        
+        # 3. Mask left and right A-pillars and windshield housing reflections (left 5%, right 15%)
+        mask[:, 0:int(w * 0.05)] = 0
+        mask[:, int(w * 0.85):] = 0
+        
+        # 4. Dynamic obstacle categories to exclude
         dynamic_categories = {"vehicle", "pedestrian", "animal"}
         
         for item in dynamic_boxes:
@@ -100,7 +113,6 @@ class VehicleEgoOdometryTracker:
             
             if is_dynamic and "bbox" in item:
                 x1, y1, x2, y2 = [int(v) for v in item["bbox"]]
-                # Add 8% spatial safety margin around dynamic objects
                 pad_w = int(max(4, (x2 - x1) * 0.08))
                 pad_h = int(max(4, (y2 - y1) * 0.08))
                 
@@ -129,12 +141,10 @@ class VehicleEgoOdometryTracker:
         self, 
         pts3d_prev: np.ndarray, 
         pts3d_curr: np.ndarray, 
-        max_ransac_iters: int = 100, 
-        inlier_thresh_m: float = 0.45
+        max_ransac_iters: int = 150
     ) -> Tuple[np.ndarray, np.ndarray, int]:
         """
-        Estimates 3D-to-3D rigid body transformation (R, t) using Umeyama SVD with RANSAC.
-        Returns: (Rotation matrix R, Translation vector t, Inlier count)
+        Estimates 3D-to-3D rigid body transformation (R, t) using Umeyama SVD with depth-adaptive RANSAC.
         """
         n = pts3d_prev.shape[0]
         if n < 4:
@@ -143,6 +153,9 @@ class VehicleEgoOdometryTracker:
         best_inliers = 0
         best_R = np.eye(3)
         best_t = np.zeros(3)
+        
+        # Depth-adaptive inlier threshold: 8% of depth distance + 0.5m baseline
+        thresh = np.maximum(0.5, 0.08 * pts3d_prev[:, 2])
         
         for _ in range(max_ransac_iters):
             idx = np.random.choice(n, 4, replace=False)
@@ -161,16 +174,15 @@ class VehicleEgoOdometryTracker:
                 
             t = dst_mean - (R @ src_mean)
             
-            # Count inliers
             transformed = (R @ pts3d_prev.T).T + t
             errors = np.linalg.norm(transformed - pts3d_curr, axis=1)
-            inliers = np.sum(errors < inlier_thresh_m)
+            inliers = int(np.sum(errors < thresh))
             
             if inliers > best_inliers:
                 best_inliers = inliers
                 best_R = R
                 best_t = t
-                if best_inliers > int(0.75 * n):
+                if best_inliers > int(0.80 * n):
                     break
                     
         return best_R, best_t, best_inliers
@@ -183,16 +195,8 @@ class VehicleEgoOdometryTracker:
         dt: float
     ) -> Dict:
         """
-        Processes a single video frame to update 3D odometry, distance, speed, and segment milestones.
-        
-        Args:
-            frame: Input BGR image (H, W, 3).
-            depth_map_m: Dense metric depth map (H, W) in meters.
-            dynamic_boxes: List of object detection dicts from YOLO/SAM.
-            dt: Time delta in seconds since previous frame.
-            
-        Returns:
-            Dictionary with distance, speed, and segment status metrics.
+        Processes a video frame to update visual odometry, distance, speed, and segment milestones.
+        Employs dual-zone rotation-compensated ground visual speedometer fused with 3D keypoint VO.
         """
         h, w = frame.shape[:2]
         if self.K is None:
@@ -200,78 +204,127 @@ class VehicleEgoOdometryTracker:
             
         curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         static_mask = self.build_static_mask((h, w), dynamic_boxes)
+        v_horiz = self.horizon_y_ratio * h
         
         delta_d_m = 0.0
         inliers_count = 0
         speed_kmh = 0.0
         segment_event = False
         
-        if self.prev_gray is not None and self.prev_depth_m is not None and dt > 1e-4:
-            # Detect or reuse points on static mask in previous frame
+        # Dual-zone masks
+        horiz_zone_mask = np.zeros((h, w), dtype=np.uint8)
+        horiz_zone_mask[int(h * 0.25):int(h * 0.48), int(w * 0.10):int(w * 0.85)] = 255
+        horiz_zone_mask &= static_mask
+        
+        road_zone_mask = np.zeros((h, w), dtype=np.uint8)
+        road_zone_mask[int(h * 0.50):int(h * 0.68), int(w * 0.15):int(w * 0.85)] = 255
+        road_zone_mask &= static_mask
+        
+        if self.prev_gray is not None and dt > 1e-4:
+            # 1. Measure camera pitch/yaw rotation from distant horizon features
+            rot_dy = 0.0
+            p_h0 = cv2.goodFeaturesToTrack(self.prev_gray, mask=horiz_zone_mask, **self.feature_params)
+            if p_h0 is not None and len(p_h0) >= 8:
+                p_h0_2d = p_h0.reshape(-1, 2)
+                p_h1_2d, st_fwd, _ = cv2.calcOpticalFlowPyrLK(self.prev_gray, curr_gray, p_h0_2d, None, **self.lk_params)
+                p_h0_b, st_bwd, _ = cv2.calcOpticalFlowPyrLK(curr_gray, self.prev_gray, p_h1_2d, None, **self.lk_params)
+                fb_dist_h = np.linalg.norm(p_h0_2d - p_h0_b.reshape(-1, 2), axis=1)
+                valid_h = (st_fwd.reshape(-1) == 1) & (st_bwd.reshape(-1) == 1) & (fb_dist_h < 2.5)
+                if np.sum(valid_h) >= 6:
+                    rot_dy = float(np.median(p_h1_2d[valid_h, 1] - p_h0_2d[valid_h, 1]))
+                    
+            # 2. Road surface visual speedometer (Physical ground plane projection)
+            road_disp_m = 0.0
+            road_pts_count = 0
+            p_r0 = cv2.goodFeaturesToTrack(self.prev_gray, mask=road_zone_mask, **self.feature_params)
+            if p_r0 is not None and len(p_r0) >= 8:
+                p_r0_2d = p_r0.reshape(-1, 2)
+                p_r1_2d, st_fwd_r, _ = cv2.calcOpticalFlowPyrLK(self.prev_gray, curr_gray, p_r0_2d, None, **self.lk_params)
+                p_r0_b, st_bwd_r, _ = cv2.calcOpticalFlowPyrLK(curr_gray, self.prev_gray, p_r1_2d, None, **self.lk_params)
+                fb_dist_r = np.linalg.norm(p_r0_2d - p_r0_b.reshape(-1, 2), axis=1)
+                valid_r = (st_fwd_r.reshape(-1) == 1) & (st_bwd_r.reshape(-1) == 1) & (fb_dist_r < 2.5)
+                
+                if np.sum(valid_r) >= 6:
+                    p0_rv = p_r0_2d[valid_r]
+                    p1_rv = p_r1_2d[valid_r]
+                    
+                    # Pitch-compensated downward optical flow
+                    dy_pure = (p1_rv[:, 1] - p0_rv[:, 1]) - rot_dy
+                    v0_rel = p0_rv[:, 1] - v_horiz
+                    
+                    valid_pts = (v0_rel > 20.0) & (dy_pure > 0.0)
+                    if np.sum(valid_pts) >= 4:
+                        disp_samples = (dy_pure[valid_pts] * self.camera_height_m * self.fy) / (v0_rel[valid_pts] ** 2)
+                        max_disp_step = (self.max_speed_kmh / 3.6) * dt
+                        sensible = (disp_samples > 0.0) & (disp_samples <= max_disp_step)
+                        if np.sum(sensible) >= 3:
+                            road_disp_m = float(np.median(disp_samples[sensible]))
+                            road_pts_count = int(np.sum(sensible))
+                            
+            # 3. 3D Keypoint Rigid VO (General static background cross-check)
+            svd_disp_m = 0.0
+            svd_inliers = 0
             det_mask = self.prev_mask if self.prev_mask is not None else static_mask
             prev_pts = cv2.goodFeaturesToTrack(self.prev_gray, mask=det_mask, **self.feature_params)
             
             if prev_pts is not None and len(prev_pts) >= self.min_tracked_points:
-                prev_pts_2d = prev_pts.reshape(-1, 2)
+                p0_all = prev_pts.reshape(-1, 2)
+                p1_all, st_fwd_all, _ = cv2.calcOpticalFlowPyrLK(self.prev_gray, curr_gray, p0_all, None, **self.lk_params)
+                p0_b_all, st_bwd_all, _ = cv2.calcOpticalFlowPyrLK(curr_gray, self.prev_gray, p1_all, None, **self.lk_params)
+                fb_dist_all = np.linalg.norm(p0_all - p0_b_all.reshape(-1, 2), axis=1)
+                valid_all = (st_fwd_all.reshape(-1) == 1) & (st_bwd_all.reshape(-1) == 1) & (fb_dist_all < 2.5)
                 
-                # Forward Optical Flow
-                curr_pts_2d, status_fwd, _ = cv2.calcOpticalFlowPyrLK(
-                    self.prev_gray, curr_gray, prev_pts_2d, None, **self.lk_params
-                )
+                curr_valid = p1_all[valid_all]
+                prev_valid = p0_all[valid_all]
                 
-                # Backward validation Flow
-                back_pts_2d, status_bwd, _ = cv2.calcOpticalFlowPyrLK(
-                    curr_gray, self.prev_gray, curr_pts_2d, None, **self.lk_params
-                )
-                
-                # Filter valid points
-                fwd_stat = (status_fwd.reshape(-1) == 1)
-                bwd_stat = (status_bwd.reshape(-1) == 1)
-                fb_dist = np.linalg.norm(prev_pts_2d - back_pts_2d.reshape(-1, 2), axis=1)
-                valid = fwd_stat & bwd_stat & (fb_dist < 2.0)
-                
-                # Also ensure points stay within static mask in current frame
-                curr_valid_pts = curr_pts_2d[valid].reshape(-1, 2)
-                prev_valid_pts = prev_pts_2d[valid]
-                
-                if len(curr_valid_pts) >= self.min_tracked_points:
-                    u_curr = np.clip(np.round(curr_valid_pts[:, 0]).astype(int), 0, w - 1)
-                    v_curr = np.clip(np.round(curr_valid_pts[:, 1]).astype(int), 0, h - 1)
-                    mask_valid = (static_mask[v_curr, u_curr] > 0)
+                if len(curr_valid) >= self.min_tracked_points:
+                    u_c = np.clip(np.round(curr_valid[:, 0]).astype(int), 0, w - 1)
+                    v_c = np.clip(np.round(curr_valid[:, 1]).astype(int), 0, h - 1)
+                    in_static = (static_mask[v_c, u_c] > 0)
                     
-                    p0 = prev_valid_pts[mask_valid]
-                    p1 = curr_valid_pts[mask_valid]
+                    p0_s = prev_valid[in_static]
+                    p1_s = curr_valid[in_static]
                     
-                    if len(p0) >= self.min_tracked_points:
-                        # Lift to 3D metric coordinates
-                        pts3d_0 = self._unproject_to_3d(p0, self.prev_depth_m)
-                        pts3d_1 = self._unproject_to_3d(p1, depth_map_m)
+                    if len(p0_s) >= self.min_tracked_points and self.prev_depth_m is not None:
+                        pts3d_0 = self._unproject_to_3d(p0_s, self.prev_depth_m)
+                        pts3d_1 = self._unproject_to_3d(p1_s, depth_map_m)
                         
-                        # Filter points with realistic depth
-                        valid_z = (pts3d_0[:, 2] > 1.5) & (pts3d_0[:, 2] < 120.0) & (pts3d_1[:, 2] > 1.5) & (pts3d_1[:, 2] < 120.0)
+                        valid_z = (pts3d_0[:, 2] > 2.0) & (pts3d_0[:, 2] < 90.0) & (pts3d_1[:, 2] > 2.0) & (pts3d_1[:, 2] < 90.0)
                         pts3d_0 = pts3d_0[valid_z]
                         pts3d_1 = pts3d_1[valid_z]
                         
                         if len(pts3d_0) >= self.min_tracked_points:
-                            R_est, t_est, inliers_count = self._estimate_rigid_transform_3d(pts3d_0, pts3d_1)
-                            
-                            if inliers_count >= self.min_tracked_points:
-                                # Forward camera motion is along negative Z translation of environment
-                                # Delta Z forward = -t_est[2]
-                                forward_disp = -float(t_est[2])
-                                lateral_disp = float(t_est[0])
+                            R_est, t_est, svd_inliers = self._estimate_rigid_transform_3d(pts3d_0, pts3d_1)
+                            forward_disp = -float(t_est[2])
+                            lateral_disp = float(t_est[0])
+                            candidate_disp = float(np.sqrt(max(0.0, forward_disp)**2 + (0.2 * lateral_disp)**2))
+                            max_disp_step = (self.max_speed_kmh / 3.6) * dt
+                            if 0.0 <= candidate_disp <= max_disp_step:
+                                svd_disp_m = candidate_disp
                                 
-                                # Road ego-motion is predominantly forward
-                                candidate_disp = float(np.sqrt(max(0.0, forward_disp)**2 + (0.3 * lateral_disp)**2))
-                                
-                                # Physical limit validation
-                                max_disp_possible = (self.max_speed_kmh / 3.6) * dt
-                                if 0.0 <= candidate_disp <= max_disp_possible:
-                                    delta_d_m = candidate_disp
-                                    speed_kmh = (delta_d_m / dt) * 3.6
-                                    
+            # 4. Fusion of Road Ground Speedometer & 3D VO
+            max_disp_step = (self.max_speed_kmh / 3.6) * dt
+            if road_pts_count >= 3 and 0.0 < road_disp_m <= max_disp_step:
+                delta_d_m = road_disp_m
+                inliers_count = max(road_pts_count, svd_inliers)
+                self.last_valid_delta_m = delta_d_m
+            elif svd_inliers >= self.min_tracked_points and 0.0 < svd_disp_m <= max_disp_step:
+                delta_d_m = svd_disp_m
+                inliers_count = svd_inliers
+                self.last_valid_delta_m = delta_d_m
+            elif self.last_valid_delta_m > 0:
+                # Kinematic momentum continuity: smooth physical decay during occlusion / sharp turns
+                delta_d_m = self.last_valid_delta_m * 0.95
+                inliers_count = max(road_pts_count, svd_inliers)
+                self.last_valid_delta_m = delta_d_m
+            else:
+                delta_d_m = 0.0
+                inliers_count = max(road_pts_count, svd_inliers)
+                
+            speed_kmh = (delta_d_m / dt) * 3.6 if dt > 0 else 0.0
+            
         # Update smoothed speed and cumulative metrics
-        alpha = 0.25 if delta_d_m > 0 else 0.1
+        alpha = 0.25 if delta_d_m > 0 else 0.10
         self.smoothed_speed_kmh = (alpha * speed_kmh) + ((1.0 - alpha) * self.smoothed_speed_kmh)
         self.current_speed_kmh = round(self.smoothed_speed_kmh, 1)
         self.cumulative_distance_m += float(delta_d_m)
