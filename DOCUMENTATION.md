@@ -33,11 +33,12 @@ flowchart TB
 
         B1 --> C1[Bounding Boxes: Pedestrians, Vehicles, Animals, Commercial Friction]
         B2 --> C2[Sight Distance Metric Depth Map Z-Channel]
+        B1 & B2 --> C2b[Per-Object Inter-Vehicle Distance Badges]
         B3 --> C3[Polygon Masks: Surface Defect Footprints & Crosswalk Contours]
     end
 
     subgraph AGGREGATION["3. Spatial-Temporal Aggregation & Calibration Engine"]
-        C1 & C2 & C3 --> D1[Frame-Level Metrics Extractor]
+        C1 & C2 & C2b & C3 --> D1[Frame-Level Metrics Extractor]
         D1 --> D2[Rolling Segment Aggregator (100m-500m Buffer)]
         D2 --> D3[Empirical Threshold Calibration Engine]
         D3 --> D4[Timestamped CSV Telemetry Log & JSON Report]
@@ -72,7 +73,8 @@ sequenceDiagram
     V->>Y: Send Native Frame
     V->>D: Send Frame (RGB)
     Y-->>C: Detected Objects (Commercial, Animals, Peds, Vehicles)
-    D-->>C: Forward Sight Distance (Meters)
+    D-->>C: Forward Sight Distance (Meters) & Metric Depth Map
+    Note over C: Compute Inter-Vehicle Distances (Wheel-ground depth sampling)
     opt Keyframe Interval
         V->>S: Prompt Bounding Boxes
         S-->>C: High-Precision Instance Masks
@@ -108,6 +110,34 @@ The perception layer extracts visual evidence and translates continuous visual s
 ### 3. Segment Anything Model 2 (SAM 2) Keyframe Refiner
 - **Model Backbone**: `sam2.1_t.pt` on periodic keyframes.
 - **Precision Segmentations**: Generates exact polygon instance masks for roadside vendor stalls, crosswalk stripes, and pavement defects to quantify true physical footprint area without bounding-box empty space.
+
+### 4. Per-Object Inter-Vehicle Distance Estimation & In-Box Proximity HUD
+This module extracts continuous metric distances to each individual road vehicle, pedestrian, or animal directly ahead of the host dashcam vehicle.
+
+- **WHAT (The Capability):**
+  - **Function**: `compute_vehicle_distances()` in `cv_detector.py` evaluates the metric distance (in meters) between the dashcam and every detected traffic participant.
+  - **Visual In-Box HUD**: Renders real-time distance badges (e.g., `7.4m`, `11.6m`) anchored directly inside each target's bounding box.
+  - **3-Tier Proximity Warnings**:
+    - 🟢 **Green (> 30.0m):** Safe headway buffer.
+    - 🟡 **Amber (10.0m – 30.0m):** Caution / moderate following distance.
+    - 🔴 **Red (< 10.0m):** Danger / high tailgating & rear-end collision hazard.
+  - **Data Logging**: Records metric distances per frame in `*_frame_by_frame_detections.csv` under `vehicle_distances_m` column.
+
+- **WHY (The Technical Rationale):**
+  - **Clear Functional Distinction from Sight Distance**: Sight distance evaluates whether general road corridor visibility is unobstructed by terrain, curves, or weather. It does *not* provide headway to the specific car in front. Inter-vehicle distance provides the exact metric gap between the host vehicle and leading vehicles.
+  - **Tailgating & Near-Miss Analytics**: Critical for detecting aggressive driving, unsafe following distances, and sudden cut-ins.
+  - **Zero Inference Overhead (Shared Compute)**: Reuses the dense metric depth map already computed by MiDaS for sight distance and visual odometry, requiring **zero extra neural network forward passes or GPU memory allocation**.
+
+- **TECHNICAL EXPLANATION (How It Operates):**
+  - **Tire/Ground Contact Point Sampling**: Monocular depth models often produce depth bleeding or reflection artifacts on car roofs, glass windshields, and painted hoods. To eliminate this distortion, the algorithm samples the **bottom 12% of the bounding box** ($[y_2 - 0.12 \times h, \, y_2]$) with a $20\%$ horizontal inward margin ($[x_1 + 0.20 \times w, \, x_2 - 0.20 \times w]$). This region specifically captures the **tire/road contact patch**, which is geometrically locked to the asphalt surface.
+  - **Median Filtering**: The distance is calculated as:
+    $$D_{\text{vehicle}} = \text{median}\left( \text{DepthMap}[\text{sample\_y1} : \text{sample\_y2}, \, \text{sample\_x1} : \text{sample\_x2}] \right)$$
+    Taking the median rejects outliers caused by ground shadows, potholes, or chassis undercarriage.
+  - **Safety Bounds**: Clipped to realistic automotive perception limits: $[1.0\text{m}, \, 150.0\text{m}]$.
+  - **Empirical Validation**:
+    1. *Pinhole camera geometry*: $D = (f \times W_{\text{real}}) / \Delta x_{\text{pixels}}$ using known car dimensions (~1.8m width).
+    2. *Static ground-truth tape test*: Measured vehicle parking intervals ($5\text{m}$, $10\text{m}$, $15\text{m}$, $25\text{m}$).
+    3. *Highway lane stripe cycle*: Comparing against standard regulatory road markings (e.g. IRC:35 $7.5\text{m}$ paint-gap cycles).
 
 ---
 
@@ -189,7 +219,7 @@ The pipeline is packaged as a high-performance, asynchronous REST service ([`app
 | `GET` | `/health` | Cloud liveness check endpoint. |
 | `GET` | `/models/status` | Real-time health, CUDA GPU status, and model metadata for all pre-trained engines (`?preload=true` available). |
 | `POST`| `/models/preload` | Warmed-up one-click loading of all neural backbones (YOLO11, MiDaS, SAM 2, XGBoost) directly onto GPU. |
-| `POST`| `/analyze_video_segment_cap` | **NEW Milestone Endpoint**: Calculates 3D vehicle distance traveled and predicts/locks risk scores at every **500m** (or custom user distance cap, default: 5 FPS, 500m). |
+| `POST`| `/analyze_video_segment_cap` | **Segment-Capped Endpoint**: Calculates 3D vehicle distance traveled and predicts/locks risk scores at every **500m** (or custom user distance cap, default: 5 FPS, 500m). |
 | `POST`| `/analyze_video` | Ingests uploaded MP4 video, executes Vision AI + XGBoost analytics, and returns download URLs. |
 | `POST`| `/analyze_video_async`| Non-blocking asynchronous task execution for long video files (returns `job_id`). |
 | `GET` | `/jobs/{job_id}` | Polls status and retrieves final reports for asynchronous jobs. |
@@ -230,3 +260,4 @@ To push perception precision to maximum research-grade accuracy in future iterat
 - [x] **Milestone 5**: Production FastAPI REST microservice with synchronous & asynchronous execution endpoints.
 - [x] **Milestone 6**: Clean CSV-only telemetry logs (`*_frame_by_frame_detections.csv`), MP4 annotated videos, and JSON risk reports.
 - [x] **Milestone 7**: Option 1 Metric 3D Keypoint Visual Odometry (`cv_distance_odometry.py`), dynamic traffic masking, and real-time 500m distance-capped risk score video HUD predictions.
+- [x] **Milestone 8**: Real-time Per-Object Inter-Vehicle Distance Estimation (`compute_vehicle_distances` in `cv_detector.py`) with ground-contact patch depth sampling and 3-tier proximity in-box HUD badges.

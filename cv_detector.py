@@ -168,16 +168,74 @@ class RoadSafetyDetector:
             
         return detections
 
-    def annotate_frame(self, frame: np.ndarray, detections: dict) -> np.ndarray:
+    def compute_vehicle_distances(self, detections: dict, depth_map_m: np.ndarray) -> dict:
+        """
+        Computes the metric distance (in meters) from the dashcam to each detected vehicle,
+        pedestrian, or animal by sampling the depth map at the bottom-center of each bounding box.
+
+        The bottom-center pixel region corresponds to the ground-contact / wheel / foot area of the
+        object, which is the most reliable anchor point on the ground plane for depth-based distance
+        estimation using a monocular metric depth map.
+
+        Args:
+            detections: Output dict from detect_frame() containing 'boxes'.
+            depth_map_m: 2D float32 depth map (H x W) in meters from SightDistanceDepthEstimator.
+
+        Returns:
+            dict mapping box index (int) -> distance in meters (float).
+            Only includes boxes where category is 'vehicle', 'pedestrian', or 'animal'.
+        """
+        h, w = depth_map_m.shape[:2]
+        vehicle_distances = {}
+
+        for i, det in enumerate(detections.get("boxes", [])):
+            if det.get("category") not in {"vehicle", "pedestrian", "animal"}:
+                continue
+
+            x1, y1, x2, y2 = [int(v) for v in det["bbox"]]
+
+            # Sample a small horizontal strip near the bottom of the bounding box
+            # (wheel / foot / ground contact region) — most stable depth anchor point.
+            sample_y1 = max(0, int(y2 - (y2 - y1) * 0.12))
+            sample_y2 = min(h - 1, y2)
+            sample_x1 = max(0, x1 + int((x2 - x1) * 0.20))
+            sample_x2 = min(w - 1, x2 - int((x2 - x1) * 0.20))
+
+            # Guard: skip degenerate boxes
+            if sample_y2 <= sample_y1 or sample_x2 <= sample_x1:
+                continue
+
+            region = depth_map_m[sample_y1:sample_y2, sample_x1:sample_x2]
+            if region.size == 0:
+                continue
+
+            # Use the median depth of the strip to be robust against noise
+            dist_m = float(np.median(region))
+
+            # Sanity clamp: dashcam reliable range is ~1m–150m
+            dist_m = float(np.clip(dist_m, 1.0, 150.0))
+            vehicle_distances[i] = round(dist_m, 1)
+
+        return vehicle_distances
+
+    def annotate_frame(self, frame: np.ndarray, detections: dict, vehicle_distances: dict = None) -> np.ndarray:
         """
         Renders sleek autonomous-dashboard HUD annotations on the frame.
-        Features corner-bracket bounding boxes, semi-transparent label pills, and dark header panel.
+        Features corner-bracket bounding boxes, semi-transparent label pills, dark header panel,
+        and per-object distance badges rendered inside each detected vehicle/pedestrian/animal box.
+
+        Args:
+            frame: BGR video frame to annotate.
+            detections: Output dict from detect_frame().
+            vehicle_distances: Optional dict from compute_vehicle_distances() mapping box index
+                               to metric distance in meters. When provided, renders a color-coded
+                               distance badge inside each applicable bounding box.
         """
         annotated = frame.copy()
         h, w, _ = annotated.shape
         
         # 1. Draw Bounding Boxes with Color-Coded Category Scheme
-        for det in detections["boxes"]:
+        for i, det in enumerate(detections["boxes"]):
             x1, y1, x2, y2 = [int(v) for v in det["bbox"]]
             label_text = f"{det['label']} {int(det['confidence'] * 100)}%"
             category = det["category"]
@@ -217,6 +275,48 @@ class RoadSafetyDetector:
             
             cv2.rectangle(annotated, (x1, text_bg_y1), (x1 + tw + 10, text_bg_y2), color, cv2.FILLED)
             cv2.putText(annotated, label_text, (x1 + 5, text_bg_y2 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 1, cv2.LINE_AA)
+
+            # --- Inter-Vehicle Distance Badge ---
+            # Rendered inside the bounding box when vehicle_distances is provided.
+            # Proximity color coding:
+            #   Green  (> 30m) — Safe following distance
+            #   Amber  (10–30m) — Caution
+            #   Red    (< 10m) — Danger / too close
+            if vehicle_distances is not None and i in vehicle_distances:
+                dist_m = vehicle_distances[i]
+                dist_text = f"{dist_m:.1f}m"
+
+                if dist_m > 30.0:
+                    badge_color = (0, 220, 60)    # Green  — Safe distance
+                elif dist_m > 10.0:
+                    badge_color = (0, 200, 255)   # Amber  — Caution
+                else:
+                    badge_color = (40, 40, 255)   # Red    — Danger zone
+
+                dist_font_scale = max(0.38, min(0.60, (x2 - x1) / 160.0 * 0.55))
+                (dw, dh), _ = cv2.getTextSize(dist_text, cv2.FONT_HERSHEY_SIMPLEX, dist_font_scale, 2)
+
+                # Center the badge horizontally; anchor it near the bottom-inside of the box
+                badge_cx = int((x1 + x2) / 2)
+                badge_y_bottom = max(y1 + dh + 10, y2 - 10)
+                badge_x1 = max(0, badge_cx - dw // 2 - 6)
+                badge_x2 = min(w - 1, badge_cx + dw // 2 + 6)
+                badge_y1_bg = max(0, badge_y_bottom - dh - 8)
+                badge_y2_bg = min(h - 1, badge_y_bottom + 2)
+
+                # Semi-transparent dark pill background
+                dist_overlay = annotated.copy()
+                cv2.rectangle(dist_overlay, (badge_x1, badge_y1_bg), (badge_x2, badge_y2_bg), (15, 15, 25), cv2.FILLED)
+                cv2.addWeighted(dist_overlay, 0.75, annotated, 0.25, 0, annotated)
+
+                # Colored border around distance badge
+                cv2.rectangle(annotated, (badge_x1, badge_y1_bg), (badge_x2, badge_y2_bg), badge_color, 1)
+
+                # Distance text centered inside badge
+                text_x = badge_cx - dw // 2
+                text_y = badge_y_bottom - 3
+                cv2.putText(annotated, dist_text, (text_x, text_y),
+                            cv2.FONT_HERSHEY_SIMPLEX, dist_font_scale, badge_color, 2, cv2.LINE_AA)
             
         # 2. Draw Top HUD Dashboard Panel (Semi-Transparent Dark Overlay)
         hud_height = max(40, int(h * 0.08))

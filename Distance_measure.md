@@ -1,30 +1,105 @@
-# 500m Traveled Distance Measurement — Ideation, Architecture & Verification
+# Distance Measurement Engine — Ego-Odometry & Per-Vehicle Inter-Distance
 
-This document focuses exclusively on the ideation, technical requirements, implementation details, architectural rationale, and empirical verification for **Traveled Distance Measurement & 500m Segment-Capped Risk Evaluation** in the Road Safety Vision-AI system.
-
----
-
-## 1. What We Want To Do (The Objective)
-
-- **Continuous Ego-Motion Distance Tracking:** Quantify the metric distance traversed by the host vehicle from the beginning of the video ($0\text{m}$) to the end, accurately registering when standard road safety survey segment lengths (e.g., $100\text{m}$, $250\text{m}$, or $500\text{m}$) are traversed.
-- **Dynamic Segment-Level Aggregation & Cap Prediction:** Enable dynamic triggering of safety metric aggregation (conflict frequency, roadside density, pavement defect counts) per $500\text{m}$ spatial window. Rather than waiting until video completion, the model predicts and locks the road crash risk score on the video HUD every time a $500\text{m}$ cap (or user-defined distance) is reached.
+This document provides a comprehensive guide to the two distinct distance measurement systems in the Road Safety Vision-AI system:
+1. **Ego-Vehicle Traveled Distance Odometry** (Continuous tracking of host vehicle motion & 500m spatial risk capping).
+2. **Per-Object Inter-Vehicle Distance Estimation** (Real-time metric distance from dashcam to each individual leading vehicle, pedestrian, or animal with in-box HUD proximity badges).
 
 ---
 
-## 2. Potential Approaches & Candidate Models
+## 📑 Summary of Distance Modalities in the System
 
-| Architecture / Technique | Candidate Frameworks | Working Principle | Key Considerations |
-| :--- | :--- | :--- | :--- |
-| **A. Metric Depth + Dynamic-Masked 3D Keypoint Pose (Chosen: Option 1)** | **Metric Depth (MiDaS / Metric3D / Depth Anything) + Pyramidal LK + Umeyama/PnP RANSAC** | Predicts dense metric depth; masks out moving vehicles/pedestrians; tracks static 3D keypoint correspondences across frames to solve 3D rigid body transformation $(R, t)$ and isolate forward vehicle displacement $\Delta Z$. | Fully scale-consistent, eliminates pitch/braking distortion, directly shares compute with sight distance estimation. |
-| **B. Auto-Calibrated IPM + Road Surface Flow (Option 2)** | OpenCV Inverse Perspective Mapping + Lucas-Kanade Flow | Assumes fixed camera mounting height ($1.35\text{m}$) and vanishing point pitch to project road plane into top-down bird's-eye view. | Lightweight on CPU, but sensitive to vehicle pitch oscillations during braking, speed bumps, and road gradient changes. |
-| **C. Deep Monocular Visual Odometry (VO)** | **DPVO**, **DROID-SLAM**, **TartanVO** | Uses recurrent deep networks and optical flow patch matching across sequential keyframes to predict frame-to-frame camera translation. | Scale ambiguity requires manual calibration scale factor; high GPU footprint. |
-| **D. Multi-Modal Telemetry Ingestion** | GPS EXIF extraction, NMEA stream parser, CAN-bus/OBD-II speed logs | Reads embedded GPS coordinates/speed from dashcam metadata streams. | Ground-truth accuracy, but only applicable when metadata streams are present in the video container. |
+| Distance Modality | Reference Point | Measured Quantity | Primary Objective | Key Output / UI Location |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Forward Sight Distance** | Dashcam looking down road corridor | Forward unobstructed visibility clearance ($15\text{m}–180\text{m}$) | Civil road safety adequacy ($>100\text{m}$ Adequate, $50–100\text{m}$ Partly, $<50\text{m}$ Blind) | Bottom HUD Banner: `SIGHT DISTANCE: 120.0m` |
+| **2. Traveled Ego-Odometry** | Host vehicle start point ($0\text{m}$) | Cumulative displacement traveled along the corridor ($\sum \Delta d$) | Triggers periodic 500m segment-capped XGBoost risk score evaluation | Top-Left Telemetry Card & 500m Progress Bar |
+| **3. Inter-Vehicle Distance** | Dashcam to each individual detected object | Exact Euclidean/depth distance (meters) to target vehicle's contact patch | Active collision risk, following headway, and tailgating alerts | **Inside each vehicle bounding box**: `7.4m`, `11.6m` |
 
 ---
 
-## 3. What We Implemented (Option 1 Architecture)
+# Part I: Per-Vehicle Inter-Distance Estimation & Proximity HUD
 
-In [`FD_v2/cv_distance_odometry.py`](cv_distance_odometry.py), [`FD_v2/cv_depth.py`](cv_depth.py), and [`FD_v2/main_pipeline.py`](main_pipeline.py), we implemented **Option 1: Monocular Metric 3D Keypoint Visual Odometry with Dynamic Segment Caps**:
+### 1. What We Implemented (`WHAT`)
+- **Per-Object Metric Distance Engine (`compute_vehicle_distances` in `cv_detector.py`):**
+  - Dynamically computes the physical distance (in meters) between the host dashcam vehicle and every detected traffic participant (`car`, `truck`, `bus`, `motorcycle`, `bicycle`, `pedestrian`, `animal`).
+- **Dynamic In-Box Proximity HUD Badges (`annotate_frame` in `cv_detector.py`):**
+  - Displays a dedicated metric badge directly inside each detected object's bounding box (e.g., `7.4m`, `11.6m`).
+  - Employs a 3-tier color-coded proximity warning system:
+    - 🟢 **Green (> 30.0m):** Safe following distance / headway.
+    - 🟡 **Amber (10.0m – 30.0m):** Caution zone / intermediate braking headway.
+    - 🔴 **Red (< 10.0m):** Danger zone / high tailgating & rear-end collision hazard.
+- **Frame-by-Frame CSV Telemetry Export (`main_pipeline.py`):**
+  - Logs per-object metric distances to `*_frame_by_frame_detections.csv` under `vehicle_distances_m` column (e.g. `{"0": 7.4, "1": 11.6}`) for post-processing and Time-To-Collision (TTC) calculations.
+
+### 2. Why We Implemented It (`WHY`)
+- **Clear Separation from Corridor Sight Distance:**
+  - Sight distance measures general forward visibility along the roadway (e.g. curves, crests, fog, horizon clearance). It does *not* provide the distance to a specific car directly in front of the dashcam.
+- **Active Tailgating & Collision Risk Awareness:**
+  - Traffic safety audits require tracking how closely vehicles follow one another. Having per-vehicle distance allows the system to identify unsafe headway, sudden brake-ins, and dangerous cut-ins.
+- **Zero Additional Compute Overhead (Shared Synergy):**
+  - Rather than deploying a second heavy stereo or 3D bounding box neural network, this feature directly samples the dense metric depth map already computed by MiDaS for sight distance and visual odometry. This achieves real-time per-vehicle metric tracking with **0 extra GPU memory or model passes**.
+
+### 3. Technical Explanation (`EXPLANATION`)
+
+#### Ground-Plane Tire Patch Sampling Anchor
+Monocular depth maps can exhibit depth bleeding or transparency distortion on vehicle windshields, glass, car roofs, and reflective car bodies. To achieve maximum geometric stability, we sample the depth map at the **ground contact point** (the tire/wheel contact patch):
+
+```
+┌─────────────────────────────────┐  ← y1 (Roof / sky bleed)
+│          [ Car Body ]           │
+│   (Reflective paint & glass)    │
+│                                 │
+│    ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓      │  ← sample_y1 = y2 - 0.12 * h
+└────[Tire]─────────────[Tire]────┘  ← y2 (Road ground contact)
+     x1 + 0.20*w        x2 - 0.20*w
+```
+
+1. **Spatial Bounding Box Anchor:**
+   - Vertical range: $\text{sample\_y1} = y_2 - 0.12 \times (y_2 - y_1)$ to $\text{sample\_y2} = y_2$ (the bottom $12\%$ of the bounding box).
+   - Horizontal range: $\text{sample\_x1} = x_1 + 0.20 \times (x_2 - x_1)$ to $\text{sample\_x2} = x_2 - 0.20 \times (x_2 - x_1)$ ($20\%$ inward margin to avoid road shoulder or adjacent lane background pixels).
+2. **Noise-Resistant Depth Aggregation:**
+   - Extracts all depth pixels in this ground contact strip:
+     $$D_{\text{vehicle}} = \text{median}\left( \text{DepthMap}[\text{sample\_y1} : \text{sample\_y2}, \, \text{sample\_x1} : \text{sample\_x2}] \right)$$
+   - Using the **median** rather than the mean eliminates outlier noise caused by road debris, shadows under the chassis, or asphalt paint markings.
+3. **Safety Clamping:**
+   - Clamped to realistic automotive forward perception boundaries: $[1.0\text{m}, \, 150.0\text{m}]$.
+
+### 4. How to Validate & Verify Distance Accuracy (`VALIDATION`)
+
+To verify whether the displayed vehicle distance (e.g., $7.4\text{m}$) is physically accurate:
+
+1. **Method 1: Known Physical Dimensions & Pinhole Geometry Cross-Check:**
+   - Standard vehicles have documented physical dimensions (e.g. a Maruti Suzuki Grand Vitara width $W_{\text{real}} \approx 1.795\text{m}$, height $H_{\text{real}} \approx 1.645\text{m}$).
+   - Using camera focal length $f_x = \frac{W_{\text{image}} / 2}{\tan(\text{FOV} / 2)}$:
+     $$D_{\text{pinhole}} = \frac{f_x \times W_{\text{real}}}{\Delta x_{\text{pixels}}}$$
+   - Comparing $D_{\text{pinhole}}$ against the pipeline's MiDaS reading tests whether monocular depth matches optical pinhole projection.
+2. **Method 2: Static Measured Ground-Truth Test Drive:**
+   - Park the host vehicle behind a target vehicle at physically measured distances using a tape measure ($5\text{m}$, $10\text{m}$, $15\text{m}$, $20\text{m}$, $25\text{m}$).
+   - Run the detector on frames from each position and record the output error margin. Expected monocular depth error is within $\pm 10\%–20\%$.
+3. **Method 3: Road Surface Marking Geometry:**
+   - Highway lane divider markings follow strict IRC guidelines (e.g. IRC:35 prescribes $3.0\text{m}$ paint stripe $+ 4.5\text{m}$ gap $= 7.5\text{m}$ cycle).
+   - If the vehicle ahead spans approximately one full line cycle, the distance is physically verified to be $\approx 7.5\text{m}$.
+
+---
+
+# Part II: 500m Traveled Distance Ego-Odometry & Segment Capping
+
+### 1. What We Implemented (`WHAT`)
+- **Continuous 3D Ego-Odometry Engine (`cv_distance_odometry.py`):**
+  - Measures the metric distance traveled by the host vehicle from $0\text{m}$ to the end of the video ($\sum \Delta d$).
+  - Evaluates instantaneous and smoothed speed in $\text{km/h}$.
+- **Dynamic 500m Segment Milestone Risk Capping:**
+  - Aggregates road risk metrics and triggers an automated XGBoost classification every $500\text{m}$ (or custom user cap).
+  - Locks the completed segment's score on the video HUD and flashes a milestone alert banner.
+
+### 2. Why We Implemented It (`WHY`)
+- **Standardized Civil Road Safety Audits:**
+  - Road safety engineers inspect roads in fixed spatial segments ($500\text{m}$ stretches). Time-based aggregation fails because traffic jams bias sample counts while highway speeds cover kilometers too quickly.
+- **Physical Accuracy via 3D Pose:**
+  - Decouples vehicle nose-dive pitch during braking from true forward motion, preventing the false speed spikes typical of planar Inverse Perspective Mapping (IPM).
+- **Dynamic Traffic Masking:**
+  - Uses YOLO11 bounding boxes to mask out other moving vehicles so optical flow tracks only invariant background landmarks (curbs, poles, static horizon).
+
+### 3. Technical Architecture (`EXPLANATION`)
 
 ```mermaid
 graph TD
@@ -47,52 +122,7 @@ graph TD
     M -- No --> Q["Update Real-Time Telemetry HUD & Progress Bar [0m ➔ 500m]"]
 ```
 
-### Key Technical Components:
-1. **Dynamic Exclusion Masking:**
-   - Inverts bounding boxes of detected traffic (`car`, `bus`, `truck`, `motorcycle`, `bicycle`, `pedestrian`, `animal`) with an $8\%$ safety dilation margin to isolate invariant background structures (road edges, curbs, poles, static horizon).
-2. **Dense Metric Depth Unprojection:**
-   - Projects 2D pixel coordinates $(u, v)$ to metric camera coordinates $(X, Y, Z)$ using intrinsic focal length $f_x, f_y$ derived from camera FOV ($65^\circ$).
-3. **Robust 3D Rigid Body Solver:**
-   - Evaluates point correspondence sets via Umeyama SVD with RANSAC outlier rejection, producing camera rotation matrix $R$ and translation vector $t$.
-4. **Distance & Speed Accounting:**
-   - Integrates forward displacement $\Delta Z$, filters non-physical velocity spikes ($> 160\text{ km/h}$), and computes smoothed vehicle speed in $\text{km/h}$.
-   - Tracks 500m segment completion percentages and milestones ($[0\text{m} \rightarrow 500\text{m}]$).
-5. **Real-Time Dual-Panel Telemetry HUD:**
-   - **Left Panel:** Traveled Distance, Vehicle Speed, 500m Progress Bar, and 3D Metric Inlier count.
-   - **Right Panel:** Segment Risk Audit displaying the latest completed segment's locked risk tier and score (e.g., `VERY LOW (Score: 1.14/10)`), with dynamic color coding (Green/Yellow/Red).
-   - **Center Banner:** Eye-catching notification banner that flashes across the screen when each 500m milestone is crossed.
-
----
-
-## 4. Why We Implemented It This Way
-
-1. **Immunity to Vehicle Pitching & Braking Artifacts:**
-   - Unlike 2D planar IPM (which misinterprets nose-dive braking as false speed changes), 3D rigid body transformation $(R, t)$ decouples camera pitch rotation from true forward spatial translation $\Delta Z$.
-2. **Dynamic Traffic Robustness:**
-   - By leveraging YOLO11 detections to explicitly mask out surrounding moving vehicles, the odometry engine is protected from getting "dragged" by overtaking or oncoming traffic.
-3. **100% Shared Compute Synergy with Sight Distance:**
-   - Rather than introducing a redundant separate pipeline, the dense metric depth output from `cv_depth.py` serves both **Sight Distance Adequacy (Survey Feature #4)** and **3D Traveled Distance Odometry** in a unified forward pass.
-4. **Plug-and-Play Dashcam Compatibility:**
-   - Operates on standard dashcam video without requiring hardware wheel encoders, specialized LiDAR sensors, or camera calibration files.
-
----
-
-## 5. Dedicated API Endpoint (`POST /analyze_video_segment_cap`)
-
-A dedicated REST endpoint is exposed in [`FD_v2/app.py`](app.py) for segment-capped evaluations:
-
-- **Endpoint:** `POST /analyze_video_segment_cap`
-- **Default Parameters:**
-  - `sample_fps`: `5.0` (Keyframe sampling rate)
-  - `segment_cap_m`: `500.0` (Distance interval in meters for periodic risk evaluations)
-  - `imgsz`: `None` (Native resolution e.g. 1920 or 2304)
-  - `max_frames`: `0` (Full video without early termination)
-
----
-
-## 6. How to Verify Distance Accuracy
-
-To empirically confirm that the tracked distance is accurate on any test video:
+### 4. How to Verify Traveled Distance Accuracy (`VALIDATION`)
 
 1. **Kinematic Cross-Check ($\text{Speed} \times \text{Time}$):**
    - Multiply the average speed (in $\text{m/s} = \text{km/h} / 3.6$) by the vehicle's moving duration in seconds.

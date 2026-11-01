@@ -135,7 +135,10 @@ def run_road_safety_pipeline(
         # 2. Metric Depth Estimation & 3D Keypoint Ego-Odometry (Option 1)
         depth_map, frame_sight_m = depth_estimator.compute_depth_map(proc_frame)
         frame_sight_distances.append(frame_sight_m)
-        
+
+        # 2b. Per-object inter-vehicle distance measurement (dashcam to each detected object)
+        vehicle_distances = detector.compute_vehicle_distances(dets, depth_map)
+
         odom_metrics = odometry_tracker.update(
             frame=proc_frame, 
             depth_map_m=depth_map, 
@@ -223,9 +226,9 @@ def run_road_safety_pipeline(
             annotated_frame = sam_res['annotated_frame']
             sam_mask_count = sam_res['mask_count']
             total_sam_masks_generated += sam_mask_count
-            annotated_frame = detector.annotate_frame(annotated_frame, dets)
+            annotated_frame = detector.annotate_frame(annotated_frame, dets, vehicle_distances)
         else:
-            annotated_frame = detector.annotate_frame(proc_frame, dets)
+            annotated_frame = detector.annotate_frame(proc_frame, dets, vehicle_distances)
             
         # 6. Render Distance Telemetry + Segment Risk Score HUD onto Video
         segment_risk_info = {
@@ -268,7 +271,8 @@ def run_road_safety_pipeline(
             'active_seg_animals': current_segment_metrics['animal_count'],
             'active_seg_commercial': current_segment_metrics['commercial_count'],
             'active_seg_provisional_tier': pred_at_frame['predicted_risk_tier'],
-            'active_seg_provisional_score': pred_at_frame['risk_score']
+            'active_seg_provisional_score': pred_at_frame['risk_score'],
+            'vehicle_distances_m': {str(k): v for k, v in vehicle_distances.items()}
         }
         frame_logs.append(log_entry)
         
