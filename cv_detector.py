@@ -318,42 +318,6 @@ class RoadSafetyDetector:
                 cv2.putText(annotated, dist_text, (text_x, text_y),
                             cv2.FONT_HERSHEY_SIMPLEX, dist_font_scale, badge_color, 2, cv2.LINE_AA)
             
-        # 2. Draw Top HUD Dashboard Panel (Semi-Transparent Dark Overlay)
-        hud_height = max(40, int(h * 0.08))
-        overlay = annotated.copy()
-        cv2.rectangle(overlay, (0, 0), (w, hud_height), (15, 15, 25), cv2.FILLED)
-        cv2.addWeighted(overlay, 0.70, annotated, 0.30, 0, annotated)
-        
-        font_scale = max(0.4, min(0.65, w / 1280.0 * 0.65))
-        y_pos = int(hud_height * 0.65)
-        
-        # HUD Text Strings
-        hud_title = "SAFETY AUDIT | "
-        hud_peds = f"Peds: {detections['pedestrian_count']}"
-        hud_vehs = f" | Vehs: {detections['vehicle_count']}"
-        hud_anim = f" | Anim: {detections['animal_count']}"
-        hud_comm = f" | Comm: {detections['commercial_count']}"
-        
-        # Calculate dynamic x positions
-        x = 15
-        cv2.putText(annotated, hud_title, (x, y_pos), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 2, cv2.LINE_AA)
-        (tw, _), _ = cv2.getTextSize(hud_title, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)
-        x += tw
-        
-        cv2.putText(annotated, hud_peds, (x, y_pos), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 165, 0), 2, cv2.LINE_AA)
-        (tw, _), _ = cv2.getTextSize(hud_peds, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)
-        x += tw
-        
-        cv2.putText(annotated, hud_vehs, (x, y_pos), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 235, 120), 2, cv2.LINE_AA)
-        (tw, _), _ = cv2.getTextSize(hud_vehs, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)
-        x += tw
-        
-        cv2.putText(annotated, hud_anim, (x, y_pos), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (100, 100, 255), 2, cv2.LINE_AA)
-        (tw, _), _ = cv2.getTextSize(hud_anim, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)
-        x += tw
-        
-        cv2.putText(annotated, hud_comm, (x, y_pos), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 215, 255), 2, cv2.LINE_AA)
-        
         return annotated
 
 

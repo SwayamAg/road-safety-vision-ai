@@ -283,6 +283,9 @@ def run_road_safety_pipeline(
                     
         writer.write(annotated_frame)
         processed_frames += 1
+        
+        if processed_frames % 50 == 0:
+            print(f"      • Processed {processed_frames} frames ({timestamp:.1f}s) | Dist: {odom_metrics['cumulative_distance_m']:.1f}m | Speed: {odom_metrics['current_speed_kmh']:.1f}km/h | Inliers: {odom_metrics['tracked_static_inliers']}")
 
     writer.release()
     t_elapsed = time.time() - t_start

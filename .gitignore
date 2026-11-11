@@ -34,6 +34,8 @@ README_Skill.md
 # Data & Output Media Directories
 DATA/
 DATA/*
+distance_OP/
+distance_OP/*
 *.xlsx
 *.csv
 
