@@ -6,13 +6,13 @@ AI-powered Computer Vision & SMOTE-balanced XGBoost pipeline for automated road 
 
 ## 🖼️ Demo & Pipeline Visualization
 
-![Pipeline Architecture](https://img.shields.io/badge/Pipeline-YOLO11m%20(1280p)%20%2B%20MiDaS%20Depth%20%2B%20XGBoost-blue?style=for-the-badge)
+![Pipeline Architecture](https://img.shields.io/badge/Pipeline-YOLO11m%20(Native%20Res)%20%2B%20MiDaS%20Depth%20%2B%20XGBoost-blue?style=for-the-badge)
 ![Accuracy](https://img.shields.io/badge/XGBoost%20Accuracy-90.0%25-success?style=for-the-badge)
-![API](https://img.shields.io/badge/REST%20API-FastAPI%20v2.0-green?style=for-the-badge)
-![Resolution](https://img.shields.io/badge/Inference%20Resolution-1280x1280%20(High--Res)-purple?style=for-the-badge)
+![API](https://img.shields.io/badge/REST%20API-FastAPI%20v2.1-green?style=for-the-badge)
+![Resolution](https://img.shields.io/badge/Inference%20Resolution-Dynamic%20Native%20Res-purple?style=for-the-badge)
 
 ```
-[ HTTP Upload ] ──> [ FastAPI app.py ] ──> [ YOLO11m @ 1280p + MiDaS Depth ] ──> [ XGBoost ] ──> [ JSON & MP4 Download ]
+[ HTTP Upload ] ──> [ FastAPI app.py ] ──> [ YOLO11m (Native Res) + MiDaS Depth ] ──> [ XGBoost ] ──> [ JSON & MP4 Download ]
 ```
 
 ---
@@ -119,7 +119,7 @@ The system features three distinct, non-overlapping distance measurement engines
 
 | Layer | Technology | Purpose & Technical Rationale |
 | :--- | :--- | :--- |
-| **Framework** | FastAPI 0.141 / Uvicorn 0.49 | High-performance asynchronous RESTful API framework |
+| **Framework** | FastAPI >=0.110 / Uvicorn >=0.28 | High-performance asynchronous RESTful API framework |
 | **Language** | Python 3.10+ | Core development & pipeline orchestration |
 | **Vision Detector** | YOLO11 Medium (Native Res) | 20.1M parameter backbone preserving native video aspect ratio and resolution |
 | **Instance Segmenter**| Meta SAM 2 (`sam2.1_t.pt`) | Keyframe polygonal instance segmentation for hazard footprints |

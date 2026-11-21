@@ -148,8 +148,8 @@ MODEL_DIR=models
 DATA_IP_DIR=DATA/IP
 DATA_OP_DIR=DATA/OP
 
-# Hardware Acceleration ('cuda' or 'cpu')
-DEVICE=cuda
+# Hardware Acceleration ('cuda' for NVIDIA GPU, 'cpu' for fallback)
+DEVICE=cpu
 
 # Dashcam Geometry Defaults
 CAMERA_HEIGHT_M=1.35
@@ -160,6 +160,8 @@ DEFAULT_SEGMENT_CAP_M=500.0
 DEFAULT_SAMPLE_FPS=5.0
 DEFAULT_KEYFRAME_INTERVAL=15
 ```
+
+> **Note**: `.env.example` serves as a deployment configuration reference. Currently, `main_pipeline.py` and `app.py` apply these defaults directly and accept overrides via CLI flags (`--cap`, `--fps`, `--height`, `--fov`) or FastAPI query parameters (`sample_fps`, `segment_cap_m`, `imgsz`, `max_frames`).
 
 ---
 
@@ -277,9 +279,9 @@ Or ensure `opencv-python-headless` is used instead of standard `opencv-python`.
 
 ### Q2: Out of Memory (OOM) during video processing on low-tier CPUs
 **Fix**: 
-1. Pass downscaled optical resolution: `--imgsz 640` or query parameter `?imgsz=640`.
-2. Lower the sampling frame rate from `5.0` to `2.0` FPS: `?sample_fps=2.0`.
-3. Increase `keyframe_interval` from `15` to `30` to invoke SAM 2 less frequently.
+1. Pass downscaled optical resolution via the FastAPI query parameter: `?imgsz=640`.
+2. Lower the sampling frame rate from `5.0` to `2.0` FPS: `--fps 2.0` (CLI) or `?sample_fps=2.0` (API).
+3. Increase `keyframe_interval` from `15` to `30` in `run_road_safety_pipeline()` to invoke SAM 2 less frequently.
 
 ### Q3: `No module named 'torchvision.transforms.functional_tensor'`
 **Fix**: Caused by version mismatch with older MiDaS transforms. Ensure `torchvision>=0.16.0` and `timm>=1.0.0` are installed as specified in `requirements.txt`.

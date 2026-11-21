@@ -103,9 +103,9 @@ The perception layer extracts visual evidence and translates continuous visual s
   - **Roadside Commercial Friction**: `bench` (13), `umbrella/vendor stall` (25), `chair` (56), `potted plant` (58), `dining table` (60)
 
 ### 2. Monocular Metric Depth Estimation (MiDaS v2.1 Small)
-- **Forward Horizon Clearance**: Extracts driver sight distance along the central driving corridor (center 40% image width, 25%–75% height).
-- **Metric Calibration Curve**:
+- **Forward Horizon Clearance**: Extracts driver sight distance along the central driving corridor (center 40% image width, 25%–75% height):
   $$\text{Depth}_{\text{clearance}} = \text{clip}\left(20.0 + 130.0 \times (1.0 - \text{relative\_depth}), 15.0, 180.0\right) \text{ meters}$$
+- **Dense Ground-Plane Metric Calibration (`cv_depth.py`)**: Converts MiDaS relative inverse disparity into a dense metric depth map (meters) for 3D visual odometry and per-vehicle ranging by fitting a linear model (`a * raw_disp + b`) across 12 road-plane rows ($52\%–68\%$ image height, center $30\%$ width) using pinhole ground-plane geometry ($H_{\text{cam}} = 1.35\text{m}$, $\text{FOV} = 65^\circ$, horizon at $46\%$ height), then inverting and clipping to $[1.0\text{m}, 150.0\text{m}]$.
 
 ### 3. Segment Anything Model 2 (SAM 2) Keyframe Refiner
 - **Model Backbone**: `sam2.1_t.pt` on periodic keyframes.
@@ -193,18 +193,20 @@ The Feature Calibration Engine bridges continuous frame-level detections into th
 
 ### Calibration Rules Summary Table
 
-| # | Parameter Name | Physical Unit Extracted | Ordinal Mapping Scale |
-|---|---|---|---|
-| **1** | **Sight Distance Adequacy** | Median forward metric clearance ($D_{\text{sight}}$) | `0`: $\ge 100\text{m}$ (Adequate) \| `1`: $50\text{m}–100\text{m}$ (Partly) \| `2`: $< 50\text{m}$ (Blind) |
-| **2** | **Roadside Commercial Density** | Cumulative commercial clutter count ($N_{\text{comm}}$) | `0`: $0$ (None) \| `2`: $1–2$ (Low) \| `3`: $3–5$ (Medium) \| `5`: $> 5$ (High) |
-| **3** | **Pedestrian-Vehicle Conflicts** | Proximity conflict / near-miss rate | `0`: $0$ (None) \| `2`: $1–3$ (Few) \| `5`: $> 3$ (Frequent) |
-| **4** | **Jaywalking Frequency** | Pedestrians inside active carriageway | `0`: $0$ (None) \| `2`: $1–3$ (Occasional) \| `5`: $> 3$ (Frequent) |
-| **5** | **Unsafe Merging / Diverging** | Lateral vehicle trajectory cut-ins | `0`: $0$ (None) \| `2`: $1–2$ (Few) \| `5`: $> 2$ (Frequent) |
-| **6** | **Visibility of Pedestrian Crossings** | Zebra stripe contrast / fading code | `0`: Good contrast \| `1`: Faded/Poor \| `2`: Absent |
-| **7** | **Road Surface Condition** | Pothole & cracking area ratio | `0`: Good/Smooth \| `1`: Minor defects \| `2`: Damaged/Potholes |
-| **8** | **Lane Marking Condition** | Line continuity & paint visibility | `0`: Clear continuous \| `1`: Faded/Broken \| `2`: Absent |
-| **9** | **Junction Channelization** | Median barrier / traffic island quality | `0`: Proper channelization \| `1`: Poor/Uncontrolled \| `2`: Absent |
-| **10**| **Presence of Animals on Road** | Stray animal count on carriageway ($N_{\text{animal}}$)| `0`: $0$ (None) \| `1`: $1$ (Rare) \| `5`: $\ge 2$ (Frequent) |
+| # | Parameter Name | Physical Unit Extracted | Ordinal Mapping Scale | Current CV Status |
+|---|---|---|---|---|
+| **1** | **Sight Distance Adequacy** | Median forward metric clearance ($D_{\text{sight}}$) | `0`: $\ge 100\text{m}$ (Adequate) \| `1`: $50\text{m}–100\text{m}$ (Partly) \| `2`: $< 50\text{m}$ (Blind) | ✅ Live (MiDaS) |
+| **2** | **Roadside Commercial Density** | Cumulative commercial clutter count ($N_{\text{comm}}$) | `0`: $0$ (None) \| `2`: $1–2$ (Low) \| `3`: $3–5$ (Medium) \| `5`: $> 5$ (High) | ✅ Live (YOLO11m) |
+| **3** | **Pedestrian-Vehicle Conflicts** | Proximity conflict / near-miss rate | `0`: $0$ (None) \| `2`: $1–3$ (Few) \| `5`: $> 3$ (Frequent) | ⏳ Defaults to `0` (Roadmap: ByteTrack TTC) |
+| **4** | **Jaywalking Frequency** | Pedestrians inside active carriageway | `0`: $0$ (None) \| `2`: $1–3$ (Occasional) \| `5`: $> 3$ (Frequent) | ⏳ Defaults to `0` (Roadmap: ROI Tracking) |
+| **5** | **Unsafe Merging / Diverging** | Lateral vehicle trajectory cut-ins | `0`: $0$ (None) \| `2`: $1–2$ (Few) \| `5`: $> 2$ (Frequent) | ⏳ Defaults to `0` (Roadmap: ByteTrack) |
+| **6** | **Visibility of Pedestrian Crossings** | Zebra stripe contrast / fading code | `0`: Good contrast \| `1`: Faded/Poor \| `2`: Absent | ⏳ Defaults to `0` (Roadmap: Grounded-SAM 2) |
+| **7** | **Road Surface Condition** | Pothole & cracking area ratio | `0`: Good/Smooth \| `1`: Minor defects \| `2`: Damaged/Potholes | ⏳ Defaults to `0` (Roadmap: Grounded-SAM 2) |
+| **8** | **Lane Marking Condition** | Line continuity & paint visibility | `0`: Clear continuous \| `1`: Faded/Broken \| `2`: Absent | ⏳ Defaults to `0` (Roadmap: Grounded-SAM 2) |
+| **9** | **Junction Channelization** | Median barrier / traffic island quality | `0`: Proper channelization \| `1`: Poor/Uncontrolled \| `2`: Absent | ⏳ Defaults to `0` (Roadmap: VLM) |
+| **10**| **Presence of Animals on Road** | Stray animal count on carriageway ($N_{\text{animal}}$)| `0`: $0$ (None) \| `1`: $1$ (Rare) \| `5`: $\ge 2$ (Frequent) | ✅ Live (YOLO11m) |
+
+> **Note**: Currently, `main_pipeline.py` actively populates Parameters **1, 2, and 10** from live CV detections; Parameters **3–9** default to `0` in `FeatureCalibrator` until the tracking/segmentation/VLM modules in Section 6 are integrated.
 
 ---
 
